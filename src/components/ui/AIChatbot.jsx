@@ -86,8 +86,8 @@ export default function AIChatbot() {
         },
         body: JSON.stringify({
           model:       'gpt-4o-mini',
-          max_tokens:  300,
-          temperature: 0.7,
+          max_tokens:  2000,
+          temperature: 0.8,
           messages: [
             { role: 'system', content: SYSTEM_PROMPT },
             // Send last 10 messages for context (avoid token bloat)

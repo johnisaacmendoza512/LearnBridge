@@ -1,0 +1,137 @@
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import ProtectedRoute from './components/auth/ProtectedRoute';
+import AppLayout from './components/layout/AppLayout';
+import Spinner from './components/ui/Spinner';
+
+// Public
+import LandingPage  from './pages/LandingPage';
+import LoginPage    from './pages/auth/LoginPage';
+import RegisterPage from './pages/auth/RegisterPage';
+
+// Tutor pending approval
+import PendingApprovalPage from './pages/tutor/PendingApprovalPage';
+
+// Parent
+import ParentDashboard    from './pages/parent/ParentDashboard';
+import MyChildrenPage     from './pages/parent/MyChildrenPage';
+import FindTutorsPage     from './pages/parent/FindTutorsPage';
+import MessagesPage       from './pages/parent/MessagesPage';
+import BookingsPage       from './pages/parent/BookingsPage';
+import ParentSessionsPage from './pages/parent/ParentSessionsPage';
+
+
+// Tutor
+import TutorDashboard    from './pages/tutor/TutorDashboard';
+import TutorProfilePage  from './pages/tutor/TutorProfilePage';
+import CertificationPage from './pages/tutor/CertificationPage';
+import SessionsPage      from './pages/tutor/SessionsPage';
+import QuestionBankPage  from './pages/tutor/QuestionBankPage';
+import WalletPage        from './pages/tutor/WalletPage';
+import TutorMessagesPage from './pages/tutor/TutorMessagesPage';
+
+// Admin
+import AdminDashboard        from './pages/admin/AdminDashboard';
+import TutorVerificationPage from './pages/admin/TutorVerificationPage';
+import QuestionBankAdminPage from './pages/admin/QuestionBankAdminPage';
+import AdminMessagesPage     from './pages/admin/AdminMessagesPage';
+import UsersPage             from './pages/admin/UsersPage';
+import TransactionsPage      from './pages/admin/TransactionsPage';
+import AdminSessionsPage from './pages/admin/AdminSessionsPage';
+
+// ── Role-based routers ────────────────────────────────────────────────────
+function RoleDashboard() {
+  const { profile } = useAuth();
+  if (profile?.role === 'admin') return <AdminDashboard />;
+  if (profile?.role === 'tutor') return <TutorDashboard />;
+  return <ParentDashboard />;
+}
+
+function RoleQuestionBank() {
+  const { profile } = useAuth();
+  if (profile?.role === 'admin') return <QuestionBankAdminPage />;
+  return <QuestionBankPage />;
+}
+
+function RoleMessages() {
+  const { profile } = useAuth();
+  if (profile?.role === 'admin') return <AdminMessagesPage />;
+  if (profile?.role === 'tutor') return <TutorMessagesPage />;
+  return <MessagesPage />;
+}
+
+// Sessions: parent gets ParentSessionsPage, tutor/admin gets SessionsPage
+function RoleSessions() {
+  const { profile } = useAuth();
+  if (profile?.role === 'admin')  return <AdminSessionsPage />;
+  if (profile?.role === 'parent') return <ParentSessionsPage />;
+  return <SessionsPage />;
+}
+
+function AppRoutes() {
+  const { loading } = useAuth();
+  if (loading) return <Spinner dark size={32} />;
+
+  return (
+    <Routes>
+      {/* ── Public ── */}
+      <Route path="/"         element={<LandingPage />}  />
+      <Route path="/login"    element={<LoginPage />}    />
+      <Route path="/register" element={<RegisterPage />} />
+
+      {/* ── Pending approval ── */}
+      <Route path="/pending-approval" element={<PendingApprovalPage />} />
+
+      {/* ── Authenticated App Shell ── */}
+      <Route element={<ProtectedRoute />}>
+        <Route element={<AppLayout />}>
+
+          <Route path="/dashboard" element={<RoleDashboard />} />
+
+          {/* Parent-only */}
+          <Route element={<ProtectedRoute allowedRoles={['parent']} />}>
+            <Route path="/my-children" element={<MyChildrenPage />} />
+            <Route path="/find-tutors" element={<FindTutorsPage />} />
+          </Route>
+
+          {/* Tutor-only */}
+          <Route element={<ProtectedRoute allowedRoles={['tutor']} />}>
+            <Route path="/my-profile"    element={<TutorProfilePage />}  />
+            <Route path="/certification" element={<CertificationPage />} />
+            <Route path="/wallet"        element={<WalletPage />}        />
+          </Route>
+
+          {/* Admin-only */}
+          <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
+            <Route path="/tutor-verification" element={<TutorVerificationPage />} />
+            <Route path="/users"              element={<UsersPage />}             />
+            <Route path="/transactions"       element={<TransactionsPage />}      />
+          </Route>
+
+          {/* Shared routes */}
+          <Route path="/bookings"      element={<BookingsPage />}     />
+          <Route path="/sessions"      element={<RoleSessions />}     />
+          <Route path="/question-bank" element={<RoleQuestionBank />} />
+          <Route path="/messages"      element={<RoleMessages />}     />
+
+          {/* Legacy redirect: /progress → /sessions */}
+          <Route path="/progress" element={<Navigate to="/sessions" replace />} />
+
+        </Route>
+      </Route>
+
+      {/* Fallback */}
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppRoutes />
+    </AuthProvider>
+  );
+
+console.log('Key loaded:', process.env.REACT_APP_OPENAI_API_KEY ? 'YES' : 'NO');
+}

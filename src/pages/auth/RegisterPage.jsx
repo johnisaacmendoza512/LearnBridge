@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 import FormGroup from '../../components/ui/FormGroup';
@@ -115,7 +115,7 @@ function validatePDF(file) {
 }
 
 const STEPS_TUTOR  = ['Terms', 'Info', 'Documents', 'Assessment'];
-const STEPS_PARENT = ['Info'];
+const STEPS_PARENT = ['Terms', 'Info'];
 
 // ── Step indicator labels ─────────────────────────────────────────────────
 const STEP_META = {
@@ -129,11 +129,15 @@ export default function RegisterPage() {
   const navigate = useNavigate();
   const { signUp, signOut } = useAuth();
 
-  const [role,   setRole]   = useState('parent');
-  const [step,   setStep]   = useState(0);
-  const [agreed, setAgreed] = useState(false);
-  const [error,  setError]  = useState('');
-  const [loading,setLoading]= useState(false);
+  const [params] = useSearchParams();
+  const [role, setRole] = useState(params.get('role') || 'parent');
+  const [step,         setStep]         = useState(0);
+  const [agreed,       setAgreed]       = useState(false);
+  const [error,        setError]        = useState('');
+  const [loading,      setLoading]      = useState(false);
+  const [showModal,    setShowModal]    = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPw,setShowConfirmPw]= useState(false);
 
   // Info form
   const [form, setForm] = useState({
@@ -169,7 +173,19 @@ export default function RegisterPage() {
   const steps = role === 'tutor' ? STEPS_TUTOR : STEPS_PARENT;
   const currentStep = steps[step];
 
-  const handleRoleChange = (r) => { setRole(r); setStep(0); setAgreed(false); setError(''); };
+  const handleRoleChange = (r) => {
+    setRole(r);
+    setStep(0);
+    setAgreed(false);
+    setError('');
+    setShowPassword(false);
+    setShowConfirmPw(false);
+    setForm({
+      fullName: '', email: '', password: '', confirmPassword: '',
+      location: '', gender: '', yearsExperience: '', ratePerSession: '',
+      specialization: [], bio: '',
+    });
+  };
 
   const fmtTime = (s) => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
 
@@ -279,76 +295,51 @@ export default function RegisterPage() {
   };
 
   // ── Final registration submit ─────────────────────────────────────────
-const handleFinalSubmit = async () => {
-  setLoading(true);
-  setError('');
-  try {
-    // Step 1: Create auth account + base profile
-    const result = await signUp({
-      email:    form.email.trim(),
-      password: form.password,
-      fullName: form.fullName.trim(),
-      role,
-    });
+  const handleFinalSubmit = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      // Determine strength subjects (passed ≥ PASS_SCORE)
+      const strengthSubjects = Object.entries(allResults)
+        .filter(([, score]) => score >= PASS_SCORE)
+        .map(([subject]) => subject);
 
-    const userId = result?.user?.id;
-    if (!userId) throw new Error('Account creation failed — no user ID returned.');
+      await signUp({
+        email:            form.email.trim(),
+        password:         form.password,
+        fullName:         form.fullName.trim(),
+        role,
+        location:         form.location,
+        gender:           form.gender,
+        bio:              form.bio,
+        yearsExperience:  Number(form.yearsExperience) || 0,
+        ratePerSession:   Number(form.ratePerSession)  || 0,
+        specialization:   form.specialization,
+        nbiFile:          docs.nbi,
+        prcFile:          docs.prc,
+        medicalFile:      docs.medical,
+        resumeFile:       docs.resume,
+      });
 
-    // Step 2: Update profile with extra fields
-    await supabase.from('profiles').update({
-      location: form.location  || null,
-      gender:   form.gender    || null,
-      bio:      form.bio       || null,
-    }).eq('id', userId);
+      // Save exam scores and strength subjects to tutors table
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user?.id) {
+        await supabase.from('tutors').upsert({
+          id: user.id,
+          certification_scores: allResults,
+          specialization: strengthSubjects.length > 0 ? strengthSubjects : form.specialization,
+          status: 'pending',
+        });
+      }
 
-    // Step 3: Upload documents to storage
-    const urls = {};
-    const docMap = [
-      { key: 'nbi',     file: docs.nbi,     storageName: 'nbi.pdf',     column: 'nbi_clearance_url'  },
-      { key: 'prc',     file: docs.prc,     storageName: 'prc.pdf',     column: 'prc_license_url'    },
-      { key: 'medical', file: docs.medical, storageName: 'medical.pdf', column: 'medical_cert_url'   },
-      { key: 'resume',  file: docs.resume,  storageName: 'resume.pdf',  column: 'resume_url'         },
-    ];
-
-    for (const doc of docMap) {
-      if (!doc.file) continue;
-      const path = `${userId}/${doc.storageName}`;
-      const { error: upErr } = await supabase.storage
-        .from('tutor-documents')
-        .upload(path, doc.file, { upsert: true, contentType: 'application/pdf' });
-      if (upErr) throw new Error(`Failed to upload ${doc.key}: ${upErr.message}`);
-      const { data: urlData } = supabase.storage
-        .from('tutor-documents')
-        .getPublicUrl(path);
-      urls[doc.column] = urlData?.publicUrl || path;
+      await signOut();
+      navigate('/pending-approval');
+    } catch (err) {
+      setError(err.message || 'Registration failed. Please try again.');
+    } finally {
+      setLoading(false);
     }
-
-    // Step 4: Upsert tutors row with all fields + exam scores
-    const strengthSubjects = Object.entries(allResults)
-      .filter(([, score]) => score >= PASS_SCORE)
-      .map(([subject]) => subject);
-
-    await supabase.from('tutors').upsert({
-      id:                   userId,
-      years_experience:     Number(form.yearsExperience) || 0,
-      rate_per_session:     Number(form.ratePerSession)  || null,
-      specialization:       strengthSubjects.length > 0 ? strengthSubjects : form.specialization,
-      certification_scores: Object.keys(allResults).length > 0 ? allResults : null,
-      nbi_clearance_url:    urls['nbi_clearance_url']  || null,
-      prc_license_url:      urls['prc_license_url']    || null,
-      medical_cert_url:     urls['medical_cert_url']   || null,
-      resume_url:           urls['resume_url']         || null,
-      status:               'pending',
-    });
-
-    await signOut();
-    navigate('/pending-approval');
-  } catch (err) {
-    setError(err.message || 'Registration failed. Please try again.');
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const handleSubmitParent = async () => {
     setLoading(true);
@@ -369,6 +360,27 @@ const handleFinalSubmit = async () => {
     }
   };
 
+  // Password strength checker
+  const getPasswordStrength = (pw) => {
+    if (!pw) return null;
+    const checks = {
+      length:    pw.length >= 8,
+      uppercase: /[A-Z]/.test(pw),
+      number:    /[0-9]/.test(pw),
+      special:   /[^A-Za-z0-9]/.test(pw),
+    };
+    const passed   = Object.values(checks).filter(Boolean).length;
+    const missing  = [];
+    if (!checks.length)    missing.push('at least 8 characters');
+    if (!checks.uppercase) missing.push('uppercase letter');
+    if (!checks.number)    missing.push('number');
+    if (!checks.special)   missing.push('special character');
+    const strength = passed <= 1 ? 'Weak' : passed === 2 ? 'Fair' : passed === 3 ? 'Good' : 'Strong';
+    const color    = passed <= 1 ? '#DC2626' : passed === 2 ? '#F59E0B' : passed === 3 ? '#2563EB' : '#16A34A';
+    return { checks, missing, strength, color, passed };
+  };
+  const pwStrength = getPasswordStrength(form.password);
+
   // ── RENDER ────────────────────────────────────────────────────────────
   return (
     <div style={{
@@ -376,20 +388,24 @@ const handleFinalSubmit = async () => {
       background: `linear-gradient(135deg, ${tokens.primaryLight}, #fff, #FEF3C7)`,
       display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center', padding: 24,
+      position: 'relative',
     }}>
-      {/* Brand */}
-      <div className="flex items-center gap-10 mb-24">
-        <div style={{
-          width: 44, height: 44, borderRadius: 12, background: tokens.primary,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <span style={{ color: '#fff', fontWeight: 800, fontSize: 18 }}>LB</span>
-        </div>
+      {/* Logo — fixed top left, home button */}
+      <Link to="/" style={{
+        position: 'fixed', top: 24, left: 28,
+        display: 'flex', alignItems: 'center', gap: 10,
+        textDecoration: 'none', zIndex: 100,
+      }}>
+        <img
+          src={require('../../assets/learnbridge-logo.png')}
+          alt="LearnBridge"
+          style={{ width: 52, height: 52, objectFit: 'contain' }}
+        />
         <div>
-          <div className="font-jakarta font-extrabold" style={{ fontSize: 18 }}>LearnBridge</div>
-          <div className="text-xs text-muted">{role === 'tutor' ? 'Become a Tutor' : 'Create Account'}</div>
+          <div className="font-jakarta font-extrabold" style={{ fontSize: 17, color: tokens.dark }}>LearnBridge</div>
+          <div className="text-xs text-muted">← Back to Home</div>
         </div>
-      </div>
+      </Link>
 
       {/* Step indicator for tutor */}
       {role === 'tutor' && (
@@ -809,51 +825,250 @@ const handleFinalSubmit = async () => {
           {/* ── TERMS ── */}
           {currentStep === 'Terms' && (
             <>
-              <h2 className="font-jakarta font-extrabold mb-4" style={{ fontSize: 20 }}>📄 Terms & Conditions</h2>
-              <p className="text-sm text-muted mb-16">Please read carefully before registering as a tutor.</p>
-              <div style={{
-                maxHeight: 320, overflowY: 'auto',
-                border: `1px solid ${tokens.border}`, borderRadius: 10,
-                padding: 18, fontSize: 13, color: tokens.mid, lineHeight: 1.75,
-                marginBottom: 16, whiteSpace: 'pre-wrap',
-              }}>
-{`1. Platform Agreement
-By registering as a tutor on LearnBridge, you agree to provide honest, accurate information about your qualifications. You agree to maintain professional conduct at all times.
+              <h2 className="font-jakarta font-extrabold mb-4" style={{ fontSize: 20 }}>
+                📄 {role === 'tutor' ? 'Tutor' : 'Parent'} Agreement
+              </h2>
+              <p className="text-sm text-muted mb-24" style={{ lineHeight: 1.6 }}>
+                Before creating your account, please read and agree to our policies.
+              </p>
 
-2. Document Requirements
-All tutors must submit NBI Clearance, PRC License, Medical Certificate, and Resume (PDF only, max 20MB each). Falsified documents result in permanent termination.
-
-3. AI Certification Assessment
-During registration, you will take an AI-powered exam for each subject you wish to teach (English and/or Mathematics). Your scores determine your strength subjects shown to parents. You may retake exams before submitting.
-
-4. Session Conduct & Payments
-A 10% platform commission is automatically deducted from your wallet after each completed session. Tutors must maintain sufficient wallet balance to accept bookings.
-
-5. Code of Conduct
-Maintain professionalism and provide quality instruction at all times. Misconduct may result in immediate account suspension.
-
-6. Privacy & Data
-All personal information and documents are stored securely and used solely for platform operation.`}
-              </div>
+              {/* Simple checkbox with clickable links */}
               <label style={{
                 display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer',
-                padding: '12px 16px', marginBottom: 16,
+                padding: '16px 18px',
                 background: agreed ? tokens.primaryLight : '#FAFAFA',
                 border: `1.5px solid ${agreed ? tokens.primary : tokens.border}`,
-                borderRadius: 10, transition: 'all 0.15s',
+                borderRadius: 12, transition: 'all 0.15s',
+                marginBottom: 16,
               }}>
                 <input
-                  type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)}
+                  type="checkbox"
+                  checked={agreed}
+                  onChange={e => setAgreed(e.target.checked)}
                   style={{ marginTop: 3, accentColor: tokens.primary, width: 16, height: 16, flexShrink: 0 }}
                 />
-                <span className="text-sm" style={{ color: tokens.dark, lineHeight: 1.5 }}>
-                  I have read and agree to the LearnBridge Tutor Terms & Conditions, including submitting to document verification and the AI Certification Assessment.
+                <span style={{ fontSize: 13, color: tokens.dark, lineHeight: 1.7 }}>
+                  I have read and agree to the{' '}
+                  <button type="button" onClick={e => { e.preventDefault(); setShowModal('terms'); }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: tokens.primary, fontWeight: 700, padding: 0, fontSize: 13, textDecoration: 'underline' }}>
+                    Terms &amp; Conditions
+                  </button>
+                  {' '}and consent to the collection and processing of my personal data in accordance with the{' '}
+                  <button type="button" onClick={e => { e.preventDefault(); setShowModal('privacy'); }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: tokens.primary, fontWeight: 700, padding: 0, fontSize: 13, textDecoration: 'underline' }}>
+                    Data Privacy Act of 2012 (RA 10173).
+                  </button>
                 </span>
               </label>
+
+              {/* Terms Modal */}
+              {showModal === 'terms' && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+                  <div style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 580, maxHeight: '82vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
+                    <div style={{ padding: '18px 24px', borderBottom: `1px solid ${tokens.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                      <div className="font-jakarta font-extrabold" style={{ fontSize: 17 }}>
+                        📋 {role === 'tutor' ? 'Tutor' : 'Parent'} Terms &amp; Conditions
+                      </div>
+                      <button onClick={() => setShowModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: tokens.muted }}>✕</button>
+                    </div>
+                    <div style={{ overflowY: 'auto', padding: '20px 24px', flex: 1 }}>
+                      {(role === 'parent' ? [
+                        { num: '1', title: 'Parental Responsibility', items: [
+                          'You are solely responsible for your child\'s participation on LearnBridge.',
+                          'Ensure your child is supervised during all tutoring sessions.',
+                        ]},
+                        { num: '2', title: 'Child Safety & Privacy', items: [
+                          'Platform is designed for Grades 2–6 learners (ages 7–12).',
+                          'Do not allow your child to use this platform unsupervised.',
+                          'Your child\'s personal data is protected and never shared with third parties.',
+                        ]},
+                        { num: '3', title: 'Session Commitment', items: [
+                          'Each booking = 8 sessions (2 sessions/week, 1.5 hours each).',
+                          'You are responsible for ensuring your child attends all scheduled sessions.',
+                        ]},
+                        { num: '4', title: 'Session Confirmation & Feedback', items: [
+                          'After each session the tutor marks it complete.',
+                          'You must confirm each session and provide a star rating and feedback.',
+                        ]},
+                        { num: '5', title: 'Payments & Commission', items: [
+                          'Payments are made directly to the tutor.',
+                          'LearnBridge deducts a 10% commission from the tutor\'s wallet — parents pay no extra fees.',
+                        ]},
+                        { num: '6', title: 'Platform Use Policy', items: [
+                          'LearnBridge may suspend accounts that violate these terms.',
+                          'Any misuse by a registered child is the legal responsibility of the parent.',
+                        ]},
+                        { num: '7', title: 'Child Privacy Protection', items: [
+                          'Child data (name, grade, learning info) is used solely for tutoring services.',
+                          'This information will not be sold, shared, or disclosed to unauthorized parties.',
+                          'Parents may request access, correction, or deletion of their child\'s data at any time.',
+                        ]},
+                      ] : [
+                        { num: '1', title: 'Document Verification Required', items: [
+                          'Submit valid NBI Clearance, PRC License, Medical Certificate, and Application Form.',
+                          'All documents will be reviewed by the LearnBridge admin team.',
+                          'Falsified or expired documents result in permanent account termination.',
+                        ]},
+                        { num: '2', title: 'AI Certification Assessment', items: [
+                          'Complete an AI-powered exam for each subject you wish to teach.',
+                          'A passing score of 75% or higher is required.',
+                          'Your scores determine your strength subjects shown to parents on your profile.',
+                        ]},
+                        { num: '3', title: 'Child Safety Commitment', items: [
+                          'All students are minors (ages 7–12, Grades 2–6).',
+                          'Maintain professional conduct at all times.',
+                          'Never communicate with students outside the LearnBridge platform.',
+                          'Inappropriate conduct toward a minor results in immediate permanent ban.',
+                        ]},
+                        { num: '4', title: 'Session Rate & Commission', items: [
+                          'Your approved session rate is set by the LearnBridge admin.',
+                          'A 10% platform commission is automatically deducted per completed session.',
+                          'Maintain sufficient wallet balance to accept booking requests.',
+                        ]},
+                        { num: '5', title: '8-Session Package', items: [
+                          'All bookings = 8 sessions (2 sessions/week, 1.5 hours each).',
+                          'Complete all 8 sessions and submit session notes after every session.',
+                        ]},
+                        { num: '6', title: 'Session Completion Flow', items: [
+                          'Mark each session complete on the platform after conducting it.',
+                          'Provide session notes including topics covered.',
+                          'Parent confirms the session and provides a star rating.',
+                        ]},
+                        { num: '7', title: 'Conduct & Termination Policy', items: [
+                          'Unprofessional conduct or falsified documents result in suspension or permanent ban.',
+                          'Failure to complete booked sessions without valid reason may result in termination.',
+                        ]},
+                        { num: '8', title: 'Privacy of Minor Students', items: [
+                          'Use student information only for providing tutoring services through LearnBridge.',
+                          'Do not share, store externally, or use student information for any other purpose.',
+                          'Violation of student privacy is grounds for immediate termination and legal action.',
+                        ]},
+                      ]).map(section => (
+                        <div key={section.num} style={{ marginBottom: 20 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                            <div style={{
+                              width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
+                              background: tokens.primaryLight, color: tokens.primary,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 11, fontWeight: 800,
+                            }}>{section.num}</div>
+                            <div style={{ fontWeight: 700, fontSize: 14, color: tokens.dark }}>{section.title}</div>
+                          </div>
+                          <ul style={{ margin: 0, paddingLeft: 34, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                            {section.items.map((item, i) => (
+                              <li key={i} style={{ fontSize: 13, color: tokens.mid, lineHeight: 1.6 }}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                      <div style={{ height: 1 }} />
+                    </div>
+                    <div style={{ padding: '14px 24px', borderTop: `1px solid ${tokens.border}`, flexShrink: 0 }}>
+                      <button className="btn btn-primary btn-full" onClick={() => { setShowModal(null); setAgreed(true); }}>
+                        ✓ I Understand &amp; Agree
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Privacy Modal */}
+              {showModal === 'privacy' && (
+                <div style={{
+                  position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)',
+                  zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  padding: 24,
+                }}>
+                  <div style={{
+                    background: '#fff', borderRadius: 16, width: '100%', maxWidth: 580,
+                    maxHeight: '80vh', display: 'flex', flexDirection: 'column',
+                    boxShadow: '0 20px 60px rgba(0,0,0,.2)',
+                  }}>
+                    <div style={{
+                      padding: '18px 24px', borderBottom: `1px solid ${tokens.border}`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      flexShrink: 0,
+                    }}>
+                      <div className="font-jakarta font-extrabold" style={{ fontSize: 17 }}>
+                        🔒 Data Privacy Act of 2012 (RA 10173)
+                      </div>
+                      <button
+                        onClick={() => setShowModal(null)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: tokens.muted }}
+                      >✕</button>
+                    </div>
+
+                    {/* Scroll instruction */}
+
+                    <div style={{ overflowY: 'auto', padding: '20px 24px', flex: 1 }}>
+                      {[
+                        { icon: '🤝', title: 'Our Commitment', items: [
+                          'LearnBridge complies fully with the Data Privacy Act of 2012 (Republic Act No. 10173) of the Philippines.',
+                          'We are committed to protecting your personal data and processing it lawfully, fairly, and transparently.',
+                        ]},
+                        { icon: '📂', title: 'What Data We Collect', items: role === 'tutor' ? [
+                          'Name, email address, and contact details',
+                          'Location, gender, and years of experience',
+                          'Submitted credentials: NBI Clearance, PRC License, Medical Certificate, Application Form',
+                          'AI Certification exam scores and strength subjects',
+                          'Session records and wallet transaction history',
+                        ] : [
+                          'Your name and email address',
+                          "Your child's name and grade level",
+                          'Session and booking records related to your account',
+                        ]},
+                        { icon: '🎯', title: 'How We Use Your Data', items: [
+                          'Platform operations and account management',
+                          'Tutor verification and profile display',
+                          'Service delivery and session management',
+                          'We do NOT sell your data to third parties',
+                        ]},
+                        { icon: '⚖️', title: 'Your Rights Under RA 10173', items: [
+                          'Right to be Informed — know how your data is collected and used',
+                          'Right to Access — request a copy of your personal data',
+                          'Right to Object — object to data processing',
+                          'Right to Erasure or Blocking — request deletion of your data',
+                          'Right to Rectify — correct inaccurate or outdated data',
+                          'Right to Data Portability — receive your data in a portable format',
+                          'Right to Damages — seek compensation for privacy violations',
+                          'Right to File a Complaint — with the National Privacy Commission (NPC)',
+                        ]},
+                        { icon: '🗓️', title: 'Data Retention', items: [
+                          'Your data is retained only as long as necessary for platform purposes.',
+                          'Data is deleted or anonymized when your account is removed.',
+                          'Retention periods comply with applicable Philippine law.',
+                        ]},
+                        { icon: '📬', title: 'Contact Our Data Protection Officer', items: [
+                          'To exercise any of your rights or raise privacy concerns:',
+                          'Contact us through the LearnBridge admin messaging system.',
+                        ]},
+                      ].map(section => (
+                        <div key={section.title} style={{ marginBottom: 20 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                            <span style={{ fontSize: 18 }}>{section.icon}</span>
+                            <div style={{ fontWeight: 700, fontSize: 14, color: tokens.dark }}>{section.title}</div>
+                          </div>
+                          <ul style={{ margin: 0, paddingLeft: 26, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                            {section.items.map((item, i) => (
+                              <li key={i} style={{ fontSize: 13, color: tokens.mid, lineHeight: 1.6 }}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                      {/* Bottom anchor */}
+                      <div style={{ height: 1 }} />
+                    </div>
+                    <div style={{ padding: '14px 24px', borderTop: `1px solid ${tokens.border}`, flexShrink: 0 }}>
+                      <button className="btn btn-primary btn-full" onClick={() => { setShowModal(null); setAgreed(true); }}>
+                        ✓ I Understand &amp; Agree
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </>
           )}
-
-          {/* ── INFO ── */}
+            {/* ── INFO ── */}
           {currentStep === 'Info' && (
             <>
               <h2 className="font-jakarta font-extrabold mb-4" style={{ fontSize: 22 }}>
@@ -912,14 +1127,115 @@ All personal information and documents are stored securely and used solely for p
                   </FormGroup>
                 </>
               )}
-              <div className="grid-2">
-                <FormGroup label="Password">
-                  <input className="input" type="password" placeholder="Min. 8 characters" value={form.password} onChange={e => set('password', e.target.value)} />
-                </FormGroup>
-                <FormGroup label="Confirm Password">
-                  <input className="input" type="password" placeholder="Repeat password" value={form.confirmPassword} onChange={e => set('confirmPassword', e.target.value)} />
-                </FormGroup>
-              </div>
+              {/* Password */}
+              <FormGroup label="Password">
+                <div style={{ position: 'relative' }}>
+                  <input
+                    className="input"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Min. 8 characters"
+                    value={form.password}
+                    onChange={e => set('password', e.target.value)}
+                    style={{ paddingRight: 44 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(s => !s)}
+                    style={{
+                      position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      color: tokens.muted, fontSize: 13, fontWeight: 600, padding: 0,
+                    }}
+                  >
+                    {showPassword ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+
+                {/* Strength bar */}
+                {form.password && pwStrength && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ display: 'flex', gap: 4, marginBottom: 5 }}>
+                      {[1,2,3,4].map(i => (
+                        <div key={i} style={{
+                          flex: 1, height: 4, borderRadius: 2,
+                          background: i <= pwStrength.passed ? pwStrength.color : '#E5E7EB',
+                          transition: 'background 0.2s',
+                        }} />
+                      ))}
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      {pwStrength.missing.length > 0 && (
+                        <span style={{ fontSize: 11, color: tokens.muted }}>
+                          Missing: {pwStrength.missing.join(', ')}
+                        </span>
+                      )}
+                      <span style={{ fontSize: 11, fontWeight: 700, color: pwStrength.color, marginLeft: 'auto' }}>
+                        {pwStrength.strength}
+                      </span>
+                    </div>
+
+                    {/* Checklist */}
+                    <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      {[
+                        { key: 'length',    label: 'At least 8 characters' },
+                        { key: 'uppercase', label: 'Uppercase letter (A-Z)' },
+                        { key: 'number',    label: 'Number (0-9)' },
+                        { key: 'special',   label: 'Special character (!@#$...)' },
+                      ].map(({ key, label }) => (
+                        <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{
+                            width: 14, height: 14, borderRadius: '50%', flexShrink: 0,
+                            background: pwStrength.checks[key] ? '#D1FAE5' : '#F3F4F6',
+                            color:      pwStrength.checks[key] ? '#16A34A' : '#9CA3AF',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 9, fontWeight: 700,
+                          }}>
+                            {pwStrength.checks[key] ? '✓' : '✕'}
+                          </span>
+                          <span style={{
+                            fontSize: 11,
+                            color: pwStrength.checks[key] ? '#16A34A' : tokens.muted,
+                          }}>
+                            {label}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </FormGroup>
+
+              <FormGroup label="Confirm Password">
+                <div style={{ position: 'relative' }}>
+                  <input
+                    className="input"
+                    type={showConfirmPw ? 'text' : 'password'}
+                    placeholder="Repeat password"
+                    value={form.confirmPassword}
+                    onChange={e => set('confirmPassword', e.target.value)}
+                    style={{ paddingRight: 44 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPw(s => !s)}
+                    style={{
+                      position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      color: tokens.muted, fontSize: 13, fontWeight: 600, padding: 0,
+                    }}
+                  >
+                    {showConfirmPw ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+                {/* Match check */}
+                {form.confirmPassword && (
+                  <div style={{ marginTop: 5, fontSize: 11, fontWeight: 600,
+                    color: form.password === form.confirmPassword ? '#16A34A' : '#DC2626',
+                  }}>
+                    {form.password === form.confirmPassword ? '✓ Passwords match' : '✕ Passwords do not match'}
+                  </div>
+                )}
+              </FormGroup>
             </>
           )}
 
@@ -940,7 +1256,7 @@ All personal information and documents are stored securely and used solely for p
                 { key: 'nbi',     label: 'NBI Clearance',       icon: '🪪', hint: 'Valid within last 6 months' },
                 { key: 'prc',     label: 'PRC License',          icon: '📄', hint: 'Professional Regulation Commission' },
                 { key: 'medical', label: 'Medical Certificate',  icon: '🏥', hint: 'Issued by licensed physician' },
-                { key: 'resume',  label: 'Resume / CV',           icon: '📋', hint: 'Educational background and experience' },
+                { key: 'resume', label: 'Application Form', icon: '📋', hint: 'Your completed application form. PDF only, max 20MB.' },
               ].map(doc => (
                 <div key={doc.key} style={{
                   border: `1.5px solid ${docs[doc.key] ? tokens.success : docErrors[doc.key] ? '#FCA5A5' : tokens.border}`,

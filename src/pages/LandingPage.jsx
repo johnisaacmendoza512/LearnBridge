@@ -5,7 +5,6 @@ import tokens from '../lib/tokens';
 const features = [
   { icon:'shield',   title:'Verified Tutors',   desc:'NBI Clearance, PRC License and Medical Certificate required before any tutor is approved.' },
   { icon:'brain',    title:'AI Certification',   desc:'OpenAI-powered topic-based exam dynamically validates tutor knowledge — no repetitive questions.' },
-  { icon:'trending', title:'Smart Matching',     desc:'Student pre-assessment results weighted against tutor certification scores and your preferences.' },
   { icon:'wallet',   title:'Prepaid Wallet',     desc:'10% platform commission auto-deducted from tutor wallet after every session. No manual collection.' },
   { icon:'calendar', title:'8-Session Packages', desc:'Structured monthly packages: 2 sessions/week, 1.5 hrs each. Consistent, trackable progress.' },
   { icon:'chart',    title:'Progress Dashboard', desc:'Parents see every session topic, tutor feedback, and improvement trend in real time.' },
@@ -18,9 +17,11 @@ export default function LandingPage() {
       {/* NAVBAR */}
       <nav style={{ position:'sticky',top:0,zIndex:200,height:64,background:'rgba(255,255,255,.92)',backdropFilter:'blur(12px)',borderBottom:`1px solid ${tokens.border}`,padding:'0 40px',display:'flex',alignItems:'center',justifyContent:'space-between' }}>
         <div className="flex items-center gap-8">
-          <div style={{ width:36,height:36,borderRadius:10,background:tokens.primary,display:'flex',alignItems:'center',justifyContent:'center' }}>
-            <span style={{ color:'#fff',fontWeight:800,fontSize:14,fontFamily:"'Plus Jakarta Sans'" }}>LB</span>
-          </div>
+          <img
+          src={require('../assets/learnbridge-logo.png')}
+          alt="LearnBridge"
+          style={{ width: 40, height: 40, objectFit: 'contain' }}
+        />
           <span className="font-jakarta font-extrabold" style={{ fontSize:18 }}>LearnBridge</span>
         </div>
         <div className="flex items-center gap-8">
@@ -41,7 +42,7 @@ export default function LandingPage() {
             </span>
           </h1>
           <p style={{ fontSize:18,color:tokens.muted,maxWidth:540,margin:'0 auto 40px',lineHeight:1.7 }}>
-            AI-powered verification, smart matching, and transparent progress tracking for Grade 2–6 learners in English and Mathematics. No more word-of-mouth. Just quality tutoring.
+            AI-powered verification and transparent progress tracking for Grade 2–6 learners in English and Mathematics. No more word-of-mouth. Just quality tutoring.
           </p>
           <div className="flex items-center gap-12" style={{ justifyContent:'center',flexWrap:'wrap' }}>
             <button className="btn btn-primary btn-lg" onClick={() => navigate('/register')}>
@@ -55,25 +56,70 @@ export default function LandingPage() {
       </section>
 
       {/* FEATURES */}
-      <section style={{ padding:'80px 40px',background:tokens.dark }}>
-        <div style={{ maxWidth:1100,margin:'0 auto' }}>
-          <div className="text-center mb-32">
-            <div style={{ fontSize:11,fontWeight:700,color:tokens.secondary,textTransform:'uppercase',letterSpacing:'1px',marginBottom:12 }}>PLATFORM FEATURES</div>
-            <h2 className="font-jakarta font-extrabold text-white" style={{ fontSize:36 }}>Everything You Need, Nothing You Don't</h2>
+<section style={{ padding:'80px 40px', background:tokens.dark }}>
+  <div style={{ maxWidth:1100, margin:'0 auto' }}>
+    <div className="text-center mb-32">
+      <div style={{ fontSize:11, fontWeight:700, color:tokens.secondary, textTransform:'uppercase', letterSpacing:'1px', marginBottom:12 }}>PLATFORM FEATURES</div>
+      <h2 className="font-jakarta font-extrabold text-white" style={{ fontSize:36 }}>Everything You Need, Nothing You Don't</h2>
+    </div>
+
+    <div style={{ display:'flex', flexDirection:'column', gap:24 }}>
+
+      {/* Top row — 2 cards centered */}
+      <div style={{ display:'flex', justifyContent:'center', gap:24, flexWrap:'wrap' }}>
+        {features.slice(0,2).map(f => (
+          <div key={f.title} style={{
+            width:'calc(33.33% - 12px)', minWidth:280,
+            background:'rgba(255,255,255,.04)',
+            border:'1px solid rgba(255,255,255,.08)',
+            borderRadius:16, padding:28,
+            transition:'border-color 0.2s, transform 0.2s',
+          }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor='rgba(99,102,241,.4)'; e.currentTarget.style.transform='translateY(-4px)'; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor='rgba(255,255,255,.08)'; e.currentTarget.style.transform='translateY(0)'; }}
+          >
+            <div style={{
+              width:44, height:44, borderRadius:12, marginBottom:20,
+              background:'rgba(99,102,241,.15)',
+              display:'flex', alignItems:'center', justifyContent:'center',
+            }}>
+              <Icon name={f.icon} size={22} color={tokens.secondary} />
+            </div>
+            <h3 className="font-jakarta font-bold text-white" style={{ fontSize:18, marginBottom:10 }}>{f.title}</h3>
+            <p style={{ color:'#9CA3AF', fontSize:14, lineHeight:1.7, margin:0 }}>{f.desc}</p>
           </div>
-          <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:20 }}>
-            {features.map((f,i) => (
-              <div key={i} style={{ padding:28,borderRadius:16,border:'1px solid rgba(255,255,255,.1)',background:'rgba(255,255,255,.05)' }}>
-                <div style={{ width:44,height:44,borderRadius:12,background:tokens.primary+'30',display:'flex',alignItems:'center',justifyContent:'center',marginBottom:16 }}>
-                  <Icon name={f.icon} size={20} color={tokens.primary} />
-                </div>
-                <h3 className="font-jakarta font-bold mb-8 text-white" style={{ fontSize:16 }}>{f.title}</h3>
-                <p style={{ fontSize:13,color:'#9CA3AF',lineHeight:1.6 }}>{f.desc}</p>
-              </div>
-            ))}
+        ))}
+      </div>
+
+      {/* Bottom row — 3 cards */}
+      <div style={{ display:'flex', justifyContent:'center', gap:24, flexWrap:'wrap' }}>
+        {features.slice(2).map(f => (
+          <div key={f.title} style={{
+            width:'calc(33.33% - 16px)', minWidth:280,
+            background:'rgba(255,255,255,.04)',
+            border:'1px solid rgba(255,255,255,.08)',
+            borderRadius:16, padding:28,
+            transition:'border-color 0.2s, transform 0.2s',
+          }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor='rgba(99,102,241,.4)'; e.currentTarget.style.transform='translateY(-4px)'; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor='rgba(255,255,255,.08)'; e.currentTarget.style.transform='translateY(0)'; }}
+          >
+            <div style={{
+              width:44, height:44, borderRadius:12, marginBottom:20,
+              background:'rgba(99,102,241,.15)',
+              display:'flex', alignItems:'center', justifyContent:'center',
+            }}>
+              <Icon name={f.icon} size={22} color={tokens.secondary} />
+            </div>
+            <h3 className="font-jakarta font-bold text-white" style={{ fontSize:18, marginBottom:10 }}>{f.title}</h3>
+            <p style={{ color:'#9CA3AF', fontSize:14, lineHeight:1.7, margin:0 }}>{f.desc}</p>
           </div>
-        </div>
-      </section>
+        ))}
+      </div>
+
+    </div>
+  </div>
+</section>
 
       {/* FOOTER */}
       <footer style={{ background:tokens.dark,borderTop:'1px solid rgba(255,255,255,.08)',padding:40,textAlign:'center' }}>

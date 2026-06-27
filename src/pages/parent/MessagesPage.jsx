@@ -239,12 +239,11 @@ export default function MessagesPage() {
                 }}
               >
                 <div className="flex items-center gap-10">
-                  <div style={{
-                    width: 38, height: 38, borderRadius: '50%', background: tokens.primary,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                  }}>
-                    <span style={{ color: '#fff', fontWeight: 800, fontSize: 12 }}>LB</span>
-                  </div>
+                  <img
+                    src={require('../../assets/learnbridge-logo.png')}
+                    alt="LearnBridge"
+                    style={{ width: 38, height: 38, objectFit: 'contain', flexShrink: 0 }}
+                  />
                   <div style={{ flex: 1, overflow: 'hidden' }}>
                     <div className="font-semibold" style={{ fontSize: 13, color: activeThread === 'admin' ? tokens.primary : tokens.dark }}>
                       LearnBridge Admin
@@ -340,12 +339,11 @@ export default function MessagesPage() {
             background: '#fff', flexShrink: 0,
           }}>
             {isAdminThread ? (
-              <div style={{
-                width: 38, height: 38, borderRadius: '50%', background: tokens.primary,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-              }}>
-                <span style={{ color: '#fff', fontWeight: 800, fontSize: 12 }}>LB</span>
-              </div>
+              <img
+                src={require('../../assets/learnbridge-logo.png')}
+                alt="LearnBridge"
+                style={{ width: 38, height: 38, objectFit: 'contain', flexShrink: 0 }}
+              />
             ) : (
               <Avatar name={chatName} size={38} />
             )}

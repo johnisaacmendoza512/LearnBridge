@@ -7,12 +7,13 @@ import tokens from '../../lib/tokens';
 
 const navItems = {
   parent: [
-    { to: '/dashboard',     label: 'Dashboard',    icon: 'home'      },
-    { to: '/my-children',   label: 'My Children',  icon: 'users'     },
-    { to: '/find-tutors',   label: 'Find Tutors',  icon: 'search'    },
-    { to: '/bookings',      label: 'Bookings',     icon: 'calendar'  },
-    { to: '/sessions',      label: 'Sessions',     icon: 'book'      }, // ← was /progress "Progress"
-    { to: '/messages',      label: 'Messages',     icon: 'message',  badge: true },
+    { to: '/dashboard',   label: 'Dashboard',   icon: 'home'     },
+    { to: '/my-profile',  label: 'My Profile',  icon: 'user'     },
+    { to: '/my-children', label: 'My Children', icon: 'users'    },
+    { to: '/find-tutors', label: 'Find Tutors', icon: 'search'   },
+    { to: '/bookings',    label: 'Bookings',    icon: 'calendar' },
+    { to: '/sessions',    label: 'Sessions',    icon: 'book'     },
+    { to: '/messages',    label: 'Messages',    icon: 'message', badge: true },
   ],
   tutor: [
     { to: '/dashboard',     label: 'Dashboard',    icon: 'home'      },
@@ -49,12 +50,11 @@ export default function Sidebar() {
       {/* Brand */}
       <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid rgba(255,255,255,.08)' }}>
         <div className="flex items-center gap-8">
-          <div style={{
-            width: 36, height: 36, borderRadius: 10, background: tokens.primary,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-          }}>
-            <span style={{ color: '#fff', fontWeight: 800, fontSize: 14 }}>LB</span>
-          </div>
+          <img
+            src={require('../../assets/learnbridge-logo.png')}
+            alt="LearnBridge"
+            style={{ width: 36, height: 36, objectFit: 'contain', flexShrink: 0 }}
+          />
           <div>
             <div style={{ color: '#fff', fontWeight: 800, fontSize: 15, fontFamily: "'Plus Jakarta Sans'" }}>
               LearnBridge
@@ -86,7 +86,6 @@ export default function Sidebar() {
           >
             <Icon name={item.icon} size={16} color="currentColor" />
             <span style={{ flex: 1 }}>{item.label}</span>
-            {/* Unread announcement badge — only for parent/tutor Messages link */}
             {item.badge && unreadCount > 0 && (
               <div style={{
                 minWidth: 18, height: 18, borderRadius: 9,

@@ -14,12 +14,12 @@ import PendingApprovalPage from './pages/tutor/PendingApprovalPage';
 
 // Parent
 import ParentDashboard    from './pages/parent/ParentDashboard';
+import ParentProfilePage  from './pages/parent/ParentProfilePage';
 import MyChildrenPage     from './pages/parent/MyChildrenPage';
 import FindTutorsPage     from './pages/parent/FindTutorsPage';
 import MessagesPage       from './pages/parent/MessagesPage';
 import BookingsPage       from './pages/parent/BookingsPage';
 import ParentSessionsPage from './pages/parent/ParentSessionsPage';
-
 
 // Tutor
 import TutorDashboard    from './pages/tutor/TutorDashboard';
@@ -37,14 +37,20 @@ import QuestionBankAdminPage from './pages/admin/QuestionBankAdminPage';
 import AdminMessagesPage     from './pages/admin/AdminMessagesPage';
 import UsersPage             from './pages/admin/UsersPage';
 import TransactionsPage      from './pages/admin/TransactionsPage';
-import AdminSessionsPage from './pages/admin/AdminSessionsPage';
+import AdminSessionsPage     from './pages/admin/AdminSessionsPage';
 
-// ── Role-based routers ────────────────────────────────────────────────────
+// ── Role-based routers ─────────────────────────────────────────────────────
 function RoleDashboard() {
   const { profile } = useAuth();
   if (profile?.role === 'admin') return <AdminDashboard />;
   if (profile?.role === 'tutor') return <TutorDashboard />;
   return <ParentDashboard />;
+}
+
+function RoleProfile() {
+  const { profile } = useAuth();
+  if (profile?.role === 'tutor') return <TutorProfilePage />;
+  return <ParentProfilePage />;
 }
 
 function RoleQuestionBank() {
@@ -60,7 +66,6 @@ function RoleMessages() {
   return <MessagesPage />;
 }
 
-// Sessions: parent gets ParentSessionsPage, tutor/admin gets SessionsPage
 function RoleSessions() {
   const { profile } = useAuth();
   if (profile?.role === 'admin')  return <AdminSessionsPage />;
@@ -96,7 +101,6 @@ function AppRoutes() {
 
           {/* Tutor-only */}
           <Route element={<ProtectedRoute allowedRoles={['tutor']} />}>
-            <Route path="/my-profile"    element={<TutorProfilePage />}  />
             <Route path="/certification" element={<CertificationPage />} />
             <Route path="/wallet"        element={<WalletPage />}        />
           </Route>
@@ -109,12 +113,13 @@ function AppRoutes() {
           </Route>
 
           {/* Shared routes */}
-          <Route path="/bookings"      element={<BookingsPage />}     />
-          <Route path="/sessions"      element={<RoleSessions />}     />
-          <Route path="/question-bank" element={<RoleQuestionBank />} />
-          <Route path="/messages"      element={<RoleMessages />}     />
+          <Route path="/my-profile"    element={<RoleProfile />}      />
+          <Route path="/bookings"      element={<BookingsPage />}      />
+          <Route path="/sessions"      element={<RoleSessions />}      />
+          <Route path="/question-bank" element={<RoleQuestionBank />}  />
+          <Route path="/messages"      element={<RoleMessages />}      />
 
-          {/* Legacy redirect: /progress → /sessions */}
+          {/* Legacy redirect */}
           <Route path="/progress" element={<Navigate to="/sessions" replace />} />
 
         </Route>
@@ -132,6 +137,4 @@ export default function App() {
       <AppRoutes />
     </AuthProvider>
   );
-
-console.log('Key loaded:', process.env.REACT_APP_OPENAI_API_KEY ? 'YES' : 'NO');
 }

@@ -9,16 +9,15 @@ import tokens from '../../lib/tokens';
 export default function TutorMessagesPage() {
   const { user } = useAuth();
 
-  const {
-    threads,       // all users who have messaged this tutor
-    messages,      // messages for the active thread
-    activeUserId,
-    adminProfile,  // admin's profile
-    loading,
-    msgLoading,
-    selectUser,
-    sendMessage,
-  } = useDirectMessages();
+const {
+  threads,       // all users who have messaged this tutor
+  messages,      // messages for the active thread
+  adminProfile,  // admin's profile
+  loading,
+  msgLoading,
+  selectUser,
+  sendMessage,
+} = useDirectMessages();
 
   // 'admin' | user_id string
   const [activeThread, setActiveThread] = useState('admin');
@@ -163,12 +162,11 @@ export default function TutorMessagesPage() {
                   }}
                 >
                   <div className="flex items-center gap-10">
-                    <div style={{
-                      width: 38, height: 38, borderRadius: '50%', background: tokens.primary,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                    }}>
-                      <span style={{ color: '#fff', fontWeight: 800, fontSize: 12 }}>LB</span>
-                    </div>
+                    <img
+                      src={require('../../assets/learnbridge-logo.png')}
+                      alt="LearnBridge"
+                      style={{ width: 38, height: 38, objectFit: 'contain', flexShrink: 0 }}
+                    />
                     <div style={{ flex: 1, overflow: 'hidden' }}>
                       <div className="font-semibold" style={{
                         fontSize: 13,
@@ -288,12 +286,11 @@ export default function TutorMessagesPage() {
             background: '#fff', flexShrink: 0,
           }}>
             {isAdminThread ? (
-              <div style={{
-                width: 38, height: 38, borderRadius: '50%', background: tokens.primary,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-              }}>
-                <span style={{ color: '#fff', fontWeight: 800, fontSize: 12 }}>LB</span>
-              </div>
+              <img
+                src={require('../../assets/learnbridge-logo.png')}
+                alt="LearnBridge"
+                style={{ width: 38, height: 38, objectFit: 'contain', flexShrink: 0 }}
+              />
             ) : (
               <Avatar name={chatHeaderName} size={38} />
             )}

@@ -31,22 +31,18 @@ function analyzeResults(questions, answers) {
       byTopic[q.topic].correct++;
     }
   });
-
   const strong = [], weak = [];
   Object.entries(byTopic).forEach(([topic, { correct, total }]) => {
     const pct = (correct / total) * 100;
     if (pct >= 70) strong.push(topic);
     else           weak.push(topic);
   });
-
   const totalCorrect = questions.filter((q, i) =>
     String(answers[i] ?? '').trim() === String(q.correct_answer ?? '').trim()
   ).length;
-
   const score = questions.length > 0
     ? Math.round((totalCorrect / questions.length) * 100)
     : 0;
-
   return { strong, weak, score, totalCorrect, total: questions.length };
 }
 
@@ -74,14 +70,50 @@ export default function MyChildrenPage() {
   const [loadingQ,    setLoadingQ]    = useState(false);
   const [saving,      setSaving]      = useState(false);
 
-  const setF = (k, v) => setChildForm(f => ({ ...f, [k]: v }));
+  // Edit child state
+  const [editingChild,  setEditingChild]  = useState(null); // student object
+  const [editForm,      setEditForm]      = useState({ name: '', grade_level: 3, notes: '' });
+  const [savingEdit,    setSavingEdit]    = useState(false);
 
-  // ── Remove child ───────────────────────────────────────────────────
+  const setF  = (k, v) => setChildForm(f => ({ ...f, [k]: v }));
+  const setEF = (k, v) => setEditForm(f => ({ ...f, [k]: v }));
+
   const handleRemoveChild = async (studentId, studentName) => {
     if (!window.confirm(`Remove ${studentName} from your children? This cannot be undone.`)) return;
     const { error } = await supabase.from('students').delete().eq('id', studentId);
     if (error) { alert(error.message); return; }
     await refresh();
+  };
+
+  const handleOpenEdit = (student) => {
+    setEditForm({
+      name:        student.name        || '',
+      grade_level: student.grade_level || 3,
+      notes:       student.notes       || '',
+    });
+    setEditingChild(student);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editForm.name.trim()) { alert("Please enter your child's name."); return; }
+    setSavingEdit(true);
+    try {
+      const { error } = await supabase
+        .from('students')
+        .update({
+          name:        editForm.name,
+          grade_level: Number(editForm.grade_level),
+          notes:       editForm.notes || null,
+        })
+        .eq('id', editingChild.id);
+      if (error) throw error;
+      await refresh();
+      setEditingChild(null);
+    } catch (e) {
+      alert('Failed to save: ' + e.message);
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   const fetchQuestions = useCallback(async () => {
@@ -118,17 +150,14 @@ export default function MyChildrenPage() {
 
   const handleNext = () => {
     if (selected === null) { alert('Please select an answer.'); return; }
-
     const subj = currentSubj;
     const qs   = questions[subj];
-
     const updatedAnswers = {
       ...answers,
       [subj]: { ...answers[subj], [currentQ]: selected },
     };
     setAnswers(updatedAnswers);
     setSelected(null);
-
     if (currentQ < qs.length - 1) {
       setCurrentQ(currentQ + 1);
     } else {
@@ -138,7 +167,7 @@ export default function MyChildrenPage() {
         setSelected(null);
         setUiStep('assessing_mathematics');
       } else {
-        const engResult  = analyzeResults(questions.english,    updatedAnswers.english);
+        const engResult  = analyzeResults(questions.english,     updatedAnswers.english);
         const mathResult = analyzeResults(questions.mathematics, updatedAnswers.mathematics);
         setResults({ english: engResult, mathematics: mathResult });
         setUiStep('results');
@@ -158,7 +187,6 @@ export default function MyChildrenPage() {
         ...results.english.strong.map(t => `English: ${t}`),
         ...results.mathematics.strong.map(t => `Math: ${t}`),
       ];
-
       const { error } = await supabase.from('students').insert({
         parent_id:   user.id,
         name:        childForm.name,
@@ -175,7 +203,6 @@ export default function MyChildrenPage() {
             : `Needs improvement in: ${weaknesses.join(', ')}.`,
         },
       });
-
       if (error) throw error;
       await refresh();
       setUiStep('none');
@@ -239,14 +266,26 @@ export default function MyChildrenPage() {
                     <div className="text-sm text-muted">Grade {s.grade_level}</div>
                     {s.notes && <div className="text-xs text-muted mt-2">{s.notes}</div>}
                   </div>
-
-                  {/* Pre-assessed badge + Remove button */}
                   <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
                     {ar && (
                       <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#D1FAE5', color: '#065F46' }}>
                         ✓ Pre-assessed
                       </span>
                     )}
+                    {/* Edit button */}
+                    <button
+                      onClick={() => handleOpenEdit(s)}
+                      style={{
+                        padding: '5px 12px', borderRadius: 8,
+                        border: `1.5px solid ${tokens.primary}40`,
+                        background: tokens.primaryLight, color: tokens.primary,
+                        fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', gap: 5,
+                      }}
+                    >
+                      <Icon name="edit" size={12} color={tokens.primary} /> Edit
+                    </button>
+                    {/* Remove button */}
                     <button
                       onClick={() => handleRemoveChild(s.id, s.name)}
                       style={{
@@ -299,6 +338,45 @@ export default function MyChildrenPage() {
           })}
         </div>
       )}
+
+      {/* Edit Child Modal */}
+      <Modal
+        open={!!editingChild}
+        onClose={() => setEditingChild(null)}
+        title={`Edit ${editingChild?.name || 'Child'}'s Profile`}
+        footer={<>
+          <button className="btn btn-ghost" onClick={() => setEditingChild(null)}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleSaveEdit} disabled={savingEdit}>
+            {savingEdit ? <Spinner /> : <><Icon name="check" size={13} /> Save Changes</>}
+          </button>
+        </>}
+      >
+        <FormGroup label="Child's Full Name">
+          <input
+            className="input"
+            value={editForm.name}
+            onChange={e => setEF('name', e.target.value)}
+            placeholder="e.g. Maria Santos"
+          />
+        </FormGroup>
+        <FormGroup label="Grade Level">
+          <select
+            className="select"
+            value={editForm.grade_level}
+            onChange={e => setEF('grade_level', e.target.value)}
+          >
+            {[2,3,4,5,6].map(g => <option key={g} value={g}>Grade {g}</option>)}
+          </select>
+        </FormGroup>
+        <FormGroup label="Notes (Optional)" hint="Special learning needs or context for the tutor.">
+          <textarea
+            className="textarea"
+            value={editForm.notes}
+            onChange={e => setEF('notes', e.target.value)}
+            placeholder="e.g. Struggles with word problems..."
+          />
+        </FormGroup>
+      </Modal>
 
       {/* STEP 1 — Child form */}
       <Modal open={uiStep === 'form'} onClose={resetFlow} title="Add Child Profile"
@@ -390,11 +468,9 @@ export default function MyChildrenPage() {
                     <div style={{ display: 'inline-block', padding: '2px 10px', borderRadius: 6, background: '#F3F4F6', fontSize: 11, fontWeight: 700, color: tokens.muted, marginBottom: 12, textTransform: 'capitalize' }}>
                       {activeQ.topic} · {activeQ.difficulty}
                     </div>
-
                     <div className="font-jakarta font-bold mb-20" style={{ fontSize: 17, lineHeight: 1.5, color: tokens.dark }}>
                       {activeQ.question_text}
                     </div>
-
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
                       {parseOptions(activeQ.options).map((opt, idx) => {
                         const letter   = ['A','B','C','D'][idx];
@@ -412,7 +488,6 @@ export default function MyChildrenPage() {
                         );
                       })}
                     </div>
-
                     <button className="btn btn-primary btn-full btn-lg" onClick={handleNext} disabled={selected === null}>
                       {currentQ < activeQs.length - 1 ? 'Next Question →' : activeSubj === 'english' ? 'Next: Mathematics Assessment →' : 'Finish Assessment ✓'}
                     </button>
@@ -428,13 +503,11 @@ export default function MyChildrenPage() {
       {uiStep === 'results' && results && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
           <div style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', padding: 36 }}>
-
             <div style={{ textAlign: 'center', marginBottom: 24 }}>
               <div style={{ fontSize: 48, marginBottom: 8 }}>📊</div>
               <h2 className="font-jakarta font-extrabold" style={{ fontSize: 22 }}>Assessment Complete!</h2>
               <p className="text-sm text-muted mt-4">Here are <strong>{childForm.name}</strong>'s results for Grade {childForm.grade_level}</p>
             </div>
-
             {SUBJECTS.map(subj => {
               const res   = results[subj];
               const perf  = PERF_LABEL(res.score);
@@ -464,14 +537,13 @@ export default function MyChildrenPage() {
                     )}
                     {res.weak.length === 0 && res.strong.length === 0 && (
                       <div style={{ padding: '8px 12px', borderRadius: 8, background: '#F3F4F6', fontSize: 12, color: tokens.muted }}>
-                        Not enough data to determine topics — more questions needed in the bank.
+                        Not enough data to determine topics.
                       </div>
                     )}
                   </div>
                 </div>
               );
             })}
-
             <div style={{ background: tokens.primaryLight, border: `1px solid ${tokens.primary}30`, borderRadius: 12, padding: 16, marginBottom: 24, fontSize: 13, color: tokens.primary }}>
               <div className="font-semibold mb-6">📋 Summary for tutors</div>
               <p style={{ margin: 0, lineHeight: 1.6 }}>
@@ -481,7 +553,6 @@ export default function MyChildrenPage() {
                 }
               </p>
             </div>
-
             <button className="btn btn-primary btn-full btn-lg" onClick={handleSaveChild} disabled={saving}>
               {saving ? <Spinner /> : <><Icon name="check" size={14} /> Save {childForm.name}'s Profile</>}
             </button>

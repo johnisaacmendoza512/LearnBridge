@@ -11,9 +11,10 @@ export default function LoginPage() {
 
   const registrationMessage = location.state?.message || null;
 
-  const [form,    setForm]    = useState({ email: '', password: '' });
-  const [error,   setError]   = useState('');
-  const [loading, setLoading] = useState(false);
+  const [form,        setForm]        = useState({ email: '', password: '' });
+  const [error,       setError]       = useState('');
+  const [loading,     setLoading]     = useState(false);
+  const [showPassword,setShowPassword]= useState(false);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -99,26 +100,27 @@ export default function LoginPage() {
       minHeight: '100vh',
       background: `linear-gradient(135deg, ${tokens.primaryLight}, #fff, #FEF3C7)`,
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+      position: 'relative',
     }}>
-      <div style={{ width: '100%', maxWidth: 440 }}>
-        <Link to="/" className="btn btn-ghost btn-sm mb-20" style={{ display: 'inline-flex' }}>
-          ← Back
-        </Link>
+      {/* Logo — top left, home button */}
+      <Link to="/" style={{
+        position: 'absolute', top: 24, left: 28,
+        display: 'flex', alignItems: 'center', gap: 10,
+        textDecoration: 'none',
+      }}>
+        <img
+          src={require('../../assets/learnbridge-logo.png')}
+          alt="LearnBridge"
+          style={{ width: 52, height: 52, objectFit: 'contain' }}
+        />
+        <div>
+          <div className="font-jakarta font-extrabold" style={{ fontSize: 17, color: tokens.dark }}>LearnBridge</div>
+          <div className="text-xs text-muted">← Back to Home</div>
+        </div>
+      </Link>
 
+      <div style={{ width: '100%', maxWidth: 440 }}>
         <div className="card fade-in" style={{ padding: 36 }}>
-          {/* Brand */}
-          <div className="flex items-center gap-8 mb-24">
-            <div style={{
-              width: 40, height: 40, borderRadius: 10, background: tokens.primary,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <span style={{ color: '#fff', fontWeight: 800, fontSize: 16 }}>LB</span>
-            </div>
-            <div>
-              <div className="font-jakarta font-extrabold" style={{ fontSize: 16 }}>LearnBridge</div>
-              <div className="text-xs text-muted">Sign in to your account</div>
-            </div>
-          </div>
 
           <h2 className="font-jakarta font-extrabold mb-4" style={{ fontSize: 24 }}>
             Welcome Back
@@ -163,14 +165,28 @@ export default function LoginPage() {
             </FormGroup>
 
             <FormGroup label="Password">
-              <input
-                className="input"
-                type="password"
-                placeholder="Your password"
-                value={form.password}
-                onChange={e => set('password', e.target.value)}
-                required
-              />
+              <div style={{ position: 'relative' }}>
+                <input
+                  className="input"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Your password"
+                  value={form.password}
+                  onChange={e => set('password', e.target.value)}
+                  style={{ paddingRight: 56 }}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(s => !s)}
+                  style={{
+                    position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: tokens.muted, fontSize: 13, fontWeight: 600, padding: 0,
+                  }}
+                >
+                  {showPassword ? 'Hide' : 'Show'}
+                </button>
+              </div>
             </FormGroup>
 
             <button

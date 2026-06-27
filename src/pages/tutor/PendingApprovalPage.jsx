@@ -1,237 +1,214 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
+import Icon from '../../components/ui/Icon';
 import tokens from '../../lib/tokens';
 
 export default function PendingApprovalPage() {
-  const { user, profile, signOut } = useAuth();
-  const navigate    = useNavigate();
-  const [status,    setStatus]    = useState('pending');
-  const [adminNote, setAdminNote] = useState('');
+  const { profile, signOut } = useAuth();
+  const [tutorStatus, setTutorStatus] = useState('pending');
+  const [adminNotes,  setAdminNotes]  = useState('');
+  const [loading,     setLoading]     = useState(true);
 
   useEffect(() => {
-    if (!user) return;
-    const checkStatus = async () => {
+    if (!profile?.id) return;
+
+    const fetchStatus = async () => {
       const { data } = await supabase
         .from('tutors')
         .select('status, admin_notes')
-        .eq('id', user.id)
+        .eq('id', profile.id)
         .single();
       if (data) {
-        setStatus(data.status);
-        setAdminNote(data.admin_notes || '');
+        setTutorStatus(data.status);
+        setAdminNotes(data.admin_notes || '');
       }
+      setLoading(false);
     };
-    checkStatus();
-    const interval = setInterval(checkStatus, 30000);
+
+    fetchStatus();
+    // Poll every 30 seconds to auto-detect approval
+    const interval = setInterval(fetchStatus, 30000);
     return () => clearInterval(interval);
-  }, [user]);
+  }, [profile?.id]);
 
   const handleSignOut = async () => {
     await signOut();
-    navigate('/login');
+    window.location.href = '/login';
   };
 
-  const DOCS = [
-    { label: 'NBI Clearance',      icon: '🪪' },
-    { label: 'PRC License',        icon: '📄' },
-    { label: 'Medical Certificate',icon: '🏥' },
-    { label: 'Resume / CV',        icon: '📋' },
-  ];
+  if (loading) {
+    return (
+      <div style={{
+        minHeight: '100vh', display: 'flex',
+        alignItems: 'center', justifyContent: 'center',
+        background: '#F8FAFC',
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{
+            width: 48, height: 48, borderRadius: '50%',
+            border: `3px solid ${tokens.primary}`,
+            borderTopColor: 'transparent',
+            animation: 'spin 0.8s linear infinite',
+            margin: '0 auto 16px',
+          }} />
+          <p className="text-sm text-muted">Checking your application status...</p>
+        </div>
+      </div>
+    );
+  }
 
-  const isApproved = status === 'approved';
-  const isRejected = status === 'rejected';
-
-  const STEPS = [
-    { label: 'Documents Submitted', icon: '📤', done: true,       active: false },
-    { label: 'Admin Review',        icon: '🔍', done: isApproved, active: !isApproved && !isRejected },
-    { label: 'Account Approved',    icon: '✅', done: isApproved, active: false },
-  ];
+  const isPending = tutorStatus === 'pending';
 
   return (
     <div style={{
-      minHeight: '100vh',
-      background: `linear-gradient(135deg,${tokens.primaryLight},#fff,#FEF3C7)`,
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+      minHeight: '100vh', background: '#F8FAFC',
+      display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center', padding: 24,
     }}>
-      <div style={{ width: '100%', maxWidth: 540 }}>
-        <div className="card fade-in" style={{ padding: 40 }}>
-
-          {/* Logo */}
-          <div className="flex items-center gap-10 mb-28">
-            <div style={{ width: 40, height: 40, borderRadius: 10, background: tokens.primary, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ color: '#fff', fontWeight: 800, fontSize: 16 }}>LB</span>
-            </div>
-            <div>
-              <div className="font-jakarta font-extrabold" style={{ fontSize: 16 }}>LearnBridge</div>
-              <div className="text-xs text-muted">Tutor Application</div>
-            </div>
-          </div>
-
-          {/* ── REJECTED ── */}
-          {isRejected && (
-            <>
-              <div style={{ textAlign: 'center', marginBottom: 28 }}>
-                <div style={{ fontSize: 52, marginBottom: 12 }}>❌</div>
-                <h2 className="font-jakarta font-extrabold" style={{ fontSize: 22, color: '#DC2626' }}>
-                  Application Not Approved
-                </h2>
-                <p className="text-sm text-muted mt-8" style={{ lineHeight: 1.7 }}>
-                  Unfortunately your application was not approved at this time.
-                </p>
-              </div>
-              {adminNote && (
-                <div style={{ background: '#FEE2E2', border: '1px solid #FCA5A5', borderRadius: 12, padding: 16, marginBottom: 24 }}>
-                  <div className="font-semibold mb-6" style={{ fontSize: 13, color: '#DC2626' }}>📋 Reason from Admin:</div>
-                  <p style={{ fontSize: 13, color: '#7F1D1D', lineHeight: 1.6, margin: 0 }}>{adminNote}</p>
-                </div>
-              )}
-              <button className="btn btn-primary btn-full btn-lg mb-12" onClick={() => navigate('/register')}>
-                Re-apply as Tutor
-              </button>
-              <button className="btn btn-ghost btn-full" onClick={handleSignOut}>Sign Out</button>
-            </>
-          )}
-
-          {/* ── APPROVED ── */}
-          {isApproved && (
-            <>
-              <div style={{ textAlign: 'center', marginBottom: 28 }}>
-                <div style={{ fontSize: 52, marginBottom: 12 }}>🎉</div>
-                <h2 className="font-jakarta font-extrabold" style={{ fontSize: 22, color: tokens.success }}>
-                  Application Approved!
-                </h2>
-                <p className="text-sm text-muted mt-8" style={{ lineHeight: 1.7 }}>
-                  Congratulations, <strong>{profile?.full_name || 'Tutor'}</strong>! Your documents have been verified. Please log in to proceed to the AI Certification Exam.
-                </p>
-              </div>
-
-              {/* All steps green */}
-              <div style={{ marginBottom: 24 }}>
-                {STEPS.map((s, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                      <div style={{
-                        width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
-                        background: '#D1FAE5', border: `2px solid ${tokens.success}`,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16,
-                      }}>✓</div>
-                      {i < STEPS.length - 1 && (
-                        <div style={{ width: 2, height: 28, background: tokens.success }} />
-                      )}
-                    </div>
-                    <div style={{ paddingBottom: i < STEPS.length - 1 ? 28 : 0 }}>
-                      <div className="font-semibold" style={{ fontSize: 14, color: tokens.success }}>{s.label}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div style={{ background: '#D1FAE5', border: '1px solid #6EE7B7', borderRadius: 12, padding: 16, marginBottom: 24, fontSize: 13, color: '#065F46' }}>
-                <div className="font-semibold mb-6">✅ What's next?</div>
-                <ul style={{ margin: 0, paddingLeft: 16, lineHeight: 1.8 }}>
-                  <li>Log in to your account</li>
-                  <li>Complete the <strong>AI Certification Exam</strong> (required)</li>
-                  <li>Once certified, your profile goes live for parents</li>
-                </ul>
-              </div>
-
-              <button className="btn btn-primary btn-full btn-lg" onClick={handleSignOut}>
-                Proceed to Login →
-              </button>
-            </>
-          )}
-
-          {/* ── PENDING ── */}
-          {!isApproved && !isRejected && (
-            <>
-              <div style={{ textAlign: 'center', marginBottom: 28 }}>
-                <div style={{ position: 'relative', display: 'inline-block', marginBottom: 16 }}>
-                  <div style={{ width: 80, height: 80, borderRadius: '50%', background: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
-                    <span style={{ fontSize: 40 }}>📋</span>
-                  </div>
-                  <div style={{ position: 'absolute', top: 0, right: 0, width: 20, height: 20, borderRadius: '50%', background: '#FCD34D', border: '3px solid #fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#F59E0B', animation: 'ping 1.5s infinite' }} />
-                  </div>
-                </div>
-                <h2 className="font-jakarta font-extrabold" style={{ fontSize: 22, color: tokens.dark }}>
-                  Documents Under Review
-                </h2>
-                <p className="text-sm text-muted mt-8" style={{ lineHeight: 1.7 }}>
-                  Thank you for submitting your application, <strong>{profile?.full_name || 'Tutor'}</strong>! Our admin team is reviewing your documents.
-                </p>
-              </div>
-
-              {/* Steps */}
-              <div style={{ marginBottom: 24 }}>
-                {STEPS.map((s, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                      <div style={{
-                        width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
-                        background: s.done ? '#D1FAE5' : s.active ? '#FEF9C3' : '#F3F4F6',
-                        border: `2px solid ${s.done ? tokens.success : s.active ? '#FCD34D' : tokens.border}`,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16,
-                      }}>
-                        {s.done ? '✓' : s.icon}
-                      </div>
-                      {i < STEPS.length - 1 && (
-                        <div style={{ width: 2, height: 28, background: s.done ? tokens.success : tokens.border }} />
-                      )}
-                    </div>
-                    <div style={{ paddingBottom: i < STEPS.length - 1 ? 28 : 0 }}>
-                      <div className="font-semibold" style={{ fontSize: 14, color: s.done ? tokens.success : s.active ? '#92400E' : tokens.muted }}>
-                        {s.label}
-                      </div>
-                      {i === 0 && <div className="text-xs text-muted mt-2">All 4 documents received ✓</div>}
-                      {i === 1 && <div className="text-xs mt-2" style={{ color: '#92400E' }}>Estimated 1–3 business days</div>}
-                      {i === 2 && <div className="text-xs text-muted mt-2">You'll be notified when ready</div>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Submitted docs */}
-              <div style={{ background: '#F9FAFB', borderRadius: 12, padding: 16, marginBottom: 24 }}>
-                <div className="font-semibold mb-12" style={{ fontSize: 13, color: tokens.dark }}>📁 Submitted Documents</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {DOCS.map((doc, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <span style={{ fontSize: 16 }}>{doc.icon}</span>
-                      <span style={{ fontSize: 13, flex: 1, color: tokens.mid }}>{doc.label}</span>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: '#16A34A', background: '#D1FAE5', padding: '2px 8px', borderRadius: 6 }}>✓ Submitted</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ background: tokens.primaryLight, border: `1px solid ${tokens.primary}30`, borderRadius: 12, padding: 16, marginBottom: 24, fontSize: 13, color: tokens.primary }}>
-                <div className="font-semibold mb-6">ℹ️ What happens next?</div>
-                <ul style={{ margin: 0, paddingLeft: 16, lineHeight: 1.8, color: tokens.mid }}>
-                  <li>The admin team will verify your submitted documents</li>
-                  <li>You will receive an email once your account is approved</li>
-                  <li>After approval, you must complete the AI Certification Exam</li>
-                  <li>Once certified, your profile will be visible to parents</li>
-                </ul>
-              </div>
-
-              <div style={{ textAlign: 'center', marginBottom: 20 }}>
-                <p className="text-xs text-muted">This page checks your status automatically every 30 seconds.</p>
-              </div>
-
-              <button className="btn btn-ghost btn-full" onClick={handleSignOut}>Sign Out</button>
-            </>
-          )}
-        </div>
-
-        <style>{`
-          @keyframes ping {
-            0%, 100% { transform: scale(1); opacity: 1; }
-            50% { transform: scale(1.4); opacity: 0.6; }
-          }
-        `}</style>
+      {/* Brand */}
+      <div className="flex items-center gap-10 mb-32">
+        <img
+          src={require('../../assets/learnbridge-logo.png')}
+          alt="LearnBridge"
+          style={{ width: 52, height: 52, objectFit: 'contain' }}
+        />
+        <div className="font-jakarta font-extrabold" style={{ fontSize: 20 }}>LearnBridge</div>
       </div>
+
+      {/* Main card */}
+      <div style={{
+        background: '#fff', borderRadius: 20,
+        padding: '48px 40px', maxWidth: 480, width: '100%',
+        textAlign: 'center', boxShadow: '0 4px 24px rgba(0,0,0,.08)',
+      }}>
+
+        {isPending ? (
+          <>
+            {/* Pending icon */}
+            <div style={{
+              width: 80, height: 80, borderRadius: '50%', background: '#FEF9C3',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              margin: '0 auto 24px',
+            }}>
+              <Icon name="clock" size={36} color="#CA8A04" />
+            </div>
+
+            <h2 className="font-jakarta font-extrabold mb-12" style={{ fontSize: 24 }}>
+              Pending Admin Approval
+            </h2>
+
+            <p className="text-sm" style={{ color: tokens.mid, lineHeight: 1.8, marginBottom: 24 }}>
+              Your requirements have been submitted successfully! Our admin team is currently
+              reviewing your credentials. You will receive an email notification once your
+              account has been approved.
+            </p>
+
+            {/* Info box */}
+            <div style={{
+              background: '#EFF6FF', border: `1px solid #BFDBFE`,
+              borderRadius: 12, padding: '14px 20px', marginBottom: 28,
+              fontSize: 13, color: '#1D4ED8', lineHeight: 1.6,
+            }}>
+              This review process typically takes 1–3 business days. Thank you for your patience!
+            </div>
+
+            {/* What happens next */}
+            <div style={{
+              background: '#F9FAFB', borderRadius: 12,
+              padding: '16px 20px', marginBottom: 28, textAlign: 'left',
+            }}>
+              <div className="font-jakarta font-bold mb-12" style={{ fontSize: 13, color: tokens.dark }}>
+                What happens next?
+              </div>
+              {[
+                ['Admin reviews your NBI, PRC License & Medical Certificate', 'shield'],
+                ['Admin sets your approved session rate',                      'wallet'],
+                ['You receive approval notification',                           'check'],
+                ['You take the AI Certification Exam per subject topic',        'award'],
+                ['Your profile becomes visible to parents',                     'users'],
+              ].map(([text, icon]) => (
+                <div key={text} className="flex items-start gap-10 mb-10">
+                  <div style={{
+                    width: 24, height: 24, borderRadius: 6, flexShrink: 0,
+                    background: tokens.primaryLight,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <Icon name={icon} size={12} color={tokens.primary} />
+                  </div>
+                  <span style={{ fontSize: 13, color: tokens.mid, lineHeight: 1.5 }}>{text}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Rejected icon */}
+            <div style={{
+              width: 80, height: 80, borderRadius: '50%', background: '#FEE2E2',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              margin: '0 auto 24px',
+            }}>
+              <Icon name="x" size={36} color={tokens.danger} />
+            </div>
+
+            <h2 className="font-jakarta font-extrabold mb-12" style={{ fontSize: 24 }}>
+              Application Not Approved
+            </h2>
+
+            <p className="text-sm" style={{ color: tokens.mid, lineHeight: 1.8, marginBottom: 24 }}>
+              Unfortunately, your tutor application was not approved at this time.
+              Please review the notes below and contact our support team for more information.
+            </p>
+
+            {adminNotes && (
+              <div style={{
+                background: '#FFF5F5', border: `1px solid #FECACA`,
+                borderRadius: 12, padding: '14px 20px',
+                marginBottom: 24, textAlign: 'left',
+              }}>
+                <div className="font-bold mb-6" style={{ fontSize: 13, color: tokens.danger }}>
+                  Admin Notes:
+                </div>
+                <p style={{ fontSize: 13, color: tokens.mid, lineHeight: 1.6 }}>{adminNotes}</p>
+              </div>
+            )}
+
+            <div style={{
+              background: '#F9FAFB', borderRadius: 12,
+              padding: '14px 20px', marginBottom: 24,
+              fontSize: 13, color: tokens.mid,
+            }}>
+              If you believe this is an error or would like to reapply, please contact us at{' '}
+              <a
+                href="mailto:support@learnbridge.edu.ph"
+                style={{ color: tokens.primary, fontWeight: 600 }}
+              >
+                support@learnbridge.edu.ph
+              </a>
+            </div>
+          </>
+        )}
+
+        {/* Sign out button */}
+        <button
+          className="btn btn-primary btn-full"
+          onClick={handleSignOut}
+          style={{ fontSize: 15, padding: '14px' }}
+        >
+          <Icon name="x" size={16} /> Sign Out
+        </button>
+
+        {isPending && (
+          <p className="text-xs text-muted mt-12">
+            This page checks your status automatically every 30 seconds.
+          </p>
+        )}
+      </div>
+
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+      `}</style>
     </div>
   );
 }

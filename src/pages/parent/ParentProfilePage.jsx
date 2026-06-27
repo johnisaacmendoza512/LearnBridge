@@ -2,7 +2,6 @@ import { useState, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 import FormGroup from '../../components/ui/FormGroup';
-import Badge from '../../components/ui/Badge';
 import Icon from '../../components/ui/Icon';
 import Spinner from '../../components/ui/Spinner';
 import tokens from '../../lib/tokens';
@@ -182,10 +181,6 @@ export default function ParentProfilePage() {
             {profile?.full_name || 'Parent'}
           </div>
           <div className="text-sm text-muted mt-4 mb-4">{profile?.email}</div>
-
-          <div className="mt-8 mb-8">
-            <Badge variant="info">👨‍👩‍👧 Parent Account</Badge>
-          </div>
 
           <p className="text-xs text-muted mt-8">
             Click the camera icon to update your photo

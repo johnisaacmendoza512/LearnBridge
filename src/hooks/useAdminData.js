@@ -24,7 +24,7 @@ export function useAdminData() {
           id, specialization, years_experience, rate_per_session,
           approved_rate, status, wallet_balance, certification_scores,
           admin_notes, created_at,
-          prc_license_url, nbi_clearance_url, medical_cert_url,
+          prc_license_url, nbi_clearance_url, medical_cert_url, application_form_url,
           profile:id ( id, full_name, email, gender, bio, location, phone, role )
         `)
         .order('created_at', { ascending: false });

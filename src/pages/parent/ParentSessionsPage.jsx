@@ -16,20 +16,17 @@ const INDICATOR_CONFIG = {
 export default function ParentSessionsPage() {
   const { user } = useAuth();
 
-  const [bookings,  setBookings]  = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState(null);
-  const [selected,  setSelected]  = useState(null);
-  const [debugInfo, setDebugInfo] = useState('');
+  const [bookings, setBookings] = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState(null);
+  const [selected, setSelected] = useState(null);
 
   const fetchData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     setError(null);
-    setDebugInfo('');
 
     try {
-      // Step 1: Fetch bookings for this parent
       const { data: bookingData, error: bErr } = await supabase
         .from('bookings')
         .select(`
@@ -44,13 +41,9 @@ export default function ParentSessionsPage() {
       if (bErr) throw bErr;
 
       const bIds = (bookingData || []).map(b => b.id);
-      console.log('[ParentSessions] bookings found:', bIds.length, bIds);
-      setDebugInfo(`Found ${bIds.length} booking(s). IDs: ${bIds.join(', ')}`);
-
       let sessionsByBooking = {};
 
       if (bIds.length > 0) {
-        // Step 2: Fetch sessions for these bookings
         const { data: sessionData, error: sErr } = await supabase
           .from('sessions')
           .select(`
@@ -61,13 +54,7 @@ export default function ParentSessionsPage() {
           .in('booking_id', bIds)
           .order('session_number', { ascending: true });
 
-        if (sErr) {
-          console.error('[ParentSessions] sessions query error:', sErr);
-          setDebugInfo(prev => prev + ` | Sessions error: ${sErr.message}`);
-        } else {
-          console.log('[ParentSessions] sessions found:', sessionData?.length, sessionData);
-          setDebugInfo(prev => prev + ` | Sessions found: ${sessionData?.length || 0}`);
-
+        if (!sErr) {
           (sessionData || []).forEach(s => {
             if (!sessionsByBooking[s.booking_id]) sessionsByBooking[s.booking_id] = [];
             sessionsByBooking[s.booking_id].push(s);
@@ -75,7 +62,6 @@ export default function ParentSessionsPage() {
         }
       }
 
-      // Merge sessions into bookings
       const merged = (bookingData || []).map(b => ({
         ...b,
         sessions: (sessionsByBooking[b.id] || []).sort((a, b) =>
@@ -84,11 +70,8 @@ export default function ParentSessionsPage() {
       }));
 
       setBookings(merged);
-      if (merged.length > 0 && !selected) {
-        setSelected(merged[0].id);
-      }
+      if (merged.length > 0 && !selected) setSelected(merged[0].id);
     } catch (e) {
-      console.error('[ParentSessions] error:', e);
       setError(e.message);
     } finally {
       setLoading(false);
@@ -97,7 +80,6 @@ export default function ParentSessionsPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Auto-refresh every 15 seconds to pick up new tutor input
   useEffect(() => {
     const interval = setInterval(fetchData, 15000);
     return () => clearInterval(interval);
@@ -123,23 +105,6 @@ export default function ParentSessionsPage() {
         </p>
       </div>
 
-      {/* Debug info — remove after confirming it works */}
-      {debugInfo && (
-        <div style={{
-          background: '#FEF9C3', border: '1px solid #FDE68A',
-          borderRadius: 8, padding: '8px 14px', marginBottom: 16,
-          fontSize: 11, color: '#92400E', fontFamily: 'monospace',
-        }}>
-          🔍 Debug: {debugInfo}
-          <button
-            onClick={fetchData}
-            style={{ marginLeft: 12, fontSize: 11, color: tokens.primary, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700 }}
-          >
-            ↻ Refresh
-          </button>
-        </div>
-      )}
-
       {bookings.length === 0 ? (
         <div className="card">
           <EmptyState
@@ -151,7 +116,7 @@ export default function ParentSessionsPage() {
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 20 }}>
 
-          {/* ── LEFT: Booking selector ── */}
+          {/* LEFT: Booking selector */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div className="font-jakarta font-bold mb-4" style={{
               fontSize: 13, color: tokens.muted,
@@ -211,7 +176,7 @@ export default function ParentSessionsPage() {
             })}
           </div>
 
-          {/* ── RIGHT: Timeline ── */}
+          {/* RIGHT: Timeline */}
           {activeBooking && (
             <div>
               {/* Header card */}
@@ -262,40 +227,29 @@ export default function ParentSessionsPage() {
               <div className="card">
                 <div className="card-header">
                   <h3 className="font-jakarta font-bold" style={{ fontSize: 15 }}>Session Feedback Log</h3>
-                  <button
-                    onClick={fetchData}
-                    className="btn btn-ghost btn-sm"
-                    style={{ fontSize: 12 }}
-                  >
+                  <button onClick={fetchData} className="btn btn-ghost btn-sm" style={{ fontSize: 12 }}>
                     <Icon name="arrowDown" size={12} /> Refresh
                   </button>
                 </div>
                 <div style={{ padding: '8px 0' }}>
-                  {/* Completed sessions */}
                   {activeBooking.sessions.map((s, i) => {
                     const indCfg    = INDICATOR_CONFIG[s.performance_indicator];
                     const dotColor  = indCfg?.dot || tokens.success;
                     const sessionNum = s.session_number || (i + 1);
-
                     return (
                       <div key={s.id} style={{
                         padding: '16px 24px',
                         borderBottom: `1px solid ${tokens.border}`,
                         display: 'flex', gap: 16, alignItems: 'flex-start',
                       }}>
-                        <div style={{
-                          display: 'flex', flexDirection: 'column',
-                          alignItems: 'center', flexShrink: 0,
-                        }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
                           <div style={{
                             width: 32, height: 32, borderRadius: '50%',
                             background: dotColor + '20',
                             border: `2px solid ${dotColor}`,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                           }}>
-                            <span style={{ fontSize: 11, fontWeight: 800, color: dotColor }}>
-                              {sessionNum}
-                            </span>
+                            <span style={{ fontSize: 11, fontWeight: 800, color: dotColor }}>{sessionNum}</span>
                           </div>
                           {i < activeBooking.sessions.length - 1 && (
                             <div style={{ width: 2, height: 20, background: tokens.border, margin: '4px 0' }} />
@@ -318,16 +272,11 @@ export default function ParentSessionsPage() {
                           </div>
                           <div className="text-xs text-muted mb-6">
                             {s.scheduled_date
-                              ? new Date(s.scheduled_date).toLocaleDateString('en-PH', {
-                                  month: 'short', day: 'numeric', year: 'numeric',
-                                })
+                              ? new Date(s.scheduled_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
                               : formatDate(s.created_at)}
                           </div>
                           {s.tutor_comments && (
-                            <div style={{
-                              background: '#F0FDF4', borderRadius: 8,
-                              padding: '8px 12px', marginTop: 4,
-                            }}>
+                            <div style={{ background: '#F0FDF4', borderRadius: 8, padding: '8px 12px', marginTop: 4 }}>
                               <div className="text-xs font-bold text-muted mb-4" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                                 Tutor's Note
                               </div>
@@ -341,7 +290,6 @@ export default function ParentSessionsPage() {
                     );
                   })}
 
-                  {/* Remaining sessions */}
                   {Array.from(
                     { length: Math.max(0, 8 - activeBooking.sessions.length) },
                     (_, i) => activeBooking.sessions.length + i + 1
@@ -349,8 +297,7 @@ export default function ParentSessionsPage() {
                     <div key={num} style={{
                       padding: '14px 24px',
                       display: 'flex', gap: 16, alignItems: 'center',
-                      borderTop: idx === 0 && activeBooking.sessions.length > 0
-                        ? `1px solid ${tokens.border}` : 'none',
+                      borderTop: idx === 0 && activeBooking.sessions.length > 0 ? `1px solid ${tokens.border}` : 'none',
                       opacity: 0.4,
                     }}>
                       <div style={{
@@ -369,7 +316,7 @@ export default function ParentSessionsPage() {
                     <div style={{
                       padding: '16px 24px', background: '#D1FAE5',
                       display: 'flex', alignItems: 'center', gap: 12,
-                      borderTop: `1px solid #6EE7B7`,
+                      borderTop: '1px solid #6EE7B7',
                     }}>
                       <Icon name="check" size={18} color="#065F46" />
                       <span className="font-semibold" style={{ fontSize: 14, color: '#065F46' }}>

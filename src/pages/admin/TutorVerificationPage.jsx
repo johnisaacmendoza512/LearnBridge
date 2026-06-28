@@ -175,9 +175,9 @@ export default function TutorVerificationPage() {
                       <Badge variant={t.medical_cert_url ? 'success' : 'danger'} style={{ fontSize: 10 }}>
                         Med {t.medical_cert_url ? '✓' : '✗'}
                       </Badge>
-                      <Badge variant={t.resume_url ? 'success' : 'danger'} style={{ fontSize: 10 }}>
-                        App {t.resume_url ? '✓' : '✗'}
-                      </Badge>
+                      <Badge variant={t.application_form_url ? 'success' : 'danger'} style={{ fontSize: 10 }}>
+                      App {t.application_form_url ? '✓' : '✗'}
+                    </Badge>
                     </div>
                   </td>
                   <td style={{ fontSize: 13 }}>
@@ -263,7 +263,7 @@ export default function TutorVerificationPage() {
                   { key: 'nbi',     label: 'NBI Clearance',       path: selected.nbi_clearance_url },
                   { key: 'prc',     label: 'PRC License',          path: selected.prc_license_url   },
                   { key: 'medical', label: 'Medical Certificate',  path: selected.medical_cert_url  },
-                  { key: 'resume',  label: 'Application Form',     path: selected.resume_url        },
+                  { key: 'resume',  label: 'Application Form', path: selected.application_form_url },
                 ].map(({ key, label, path }) => (
                   <div
                     key={key}

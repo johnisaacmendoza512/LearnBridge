@@ -1,473 +1,329 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
-import FormGroup from '../../components/ui/FormGroup';
-import Icon from '../../components/ui/Icon';
-import EmptyState from '../../components/ui/EmptyState';
-import Spinner from '../../components/ui/Spinner';
+import { useAuth } from '../../context/AuthContext';
+import { useBookings } from '../../hooks/useBookings';
 import Modal from '../../components/ui/Modal';
+import FormGroup from '../../components/ui/FormGroup';
+import Badge from '../../components/ui/Badge';
+import Icon from '../../components/ui/Icon';
+import Spinner from '../../components/ui/Spinner';
+import EmptyState from '../../components/ui/EmptyState';
 import tokens from '../../lib/tokens';
 
-const INDICATOR_CONFIG = {
-  good:             { label: 'Good',             color: '#16A34A', bg: '#D1FAE5', dot: '#16A34A' },
-  improving:        { label: 'Improving',        color: '#CA8A04', bg: '#FEF3C7', dot: '#CA8A04' },
-  needs_improvement:{ label: 'Needs Improvement',color: '#DC2626', bg: '#FEE2E2', dot: '#DC2626' },
-};
+const QUIZ_TYPES = [
+  { value: 'formative',   label: '📝 Formative',   desc: 'During learning check' },
+  { value: 'summative',   label: '📊 Summative',   desc: 'End of module evaluation' },
+  { value: 'activity',    label: '🎯 Activity',    desc: 'Practice exercise' },
+  { value: 'assessment',  label: '📋 Assessment',  desc: 'Formal evaluation' },
+];
 
-function StarDisplay({ value, size = 14 }) {
+function Toast({ msg, type, onClose }) {
+  if (!msg) return null;
+  const bg    = type === 'error' ? '#FEE2E2' : '#D1FAE5';
+  const color = type === 'error' ? '#DC2626'  : '#065F46';
   return (
-    <span style={{ display: 'inline-flex', gap: 1 }}>
-      {[1,2,3,4,5].map(s => (
-        <span key={s} style={{ fontSize: size, color: s <= value ? '#F59E0B' : '#D1D5DB' }}>★</span>
-      ))}
-    </span>
-  );
-}
-
-function buildSessionMap(sessions) {
-  const map = {};
-  sessions.forEach(s => { if (s.session_number) map[s.session_number] = s; });
-  return map;
-}
-
-export default function SessionsPage() {
-  const { user } = useAuth();
-
-  // All bookings where this tutor is involved
-  const [bookings,      setBookings]      = useState([]);
-  const [loading,       setLoading]       = useState(true);
-  const [error,         setError]         = useState(null);
-  const [expandedId,    setExpandedId]    = useState(null);
-  const [sessionMaps,   setSessionMaps]   = useState({});
-  const [savingSession, setSavingSession] = useState(null);
-  const [ratingsMap,    setRatingsMap]    = useState({});    // bookingId → rating row
-  const [feedbackModal, setFeedbackModal] = useState(null);  // booking to show parent rating
-
-  // Per-booking per-session form state
-  const [forms, setForms] = useState({});
-
-  const fetchData = useCallback(async () => {
-    if (!user) return;
-    setLoading(true);
-    setError(null);
-    try {
-      // Fetch confirmed bookings for this tutor
-      const { data: bookingData, error: bErr } = await supabase
-        .from('bookings')
-        .select(`
-          id, subject, status, created_at,
-          parent:parent_id   ( id, full_name ),
-          student:student_id ( id, name, grade_level )
-        `)
-        .eq('tutor_id', user.id)
-        .in('status', ['confirmed', 'pending_parent_confirm', 'completed'])
-        .order('created_at', { ascending: false });
-
-      if (bErr) throw bErr;
-
-      // Fetch all sessions for these bookings
-      const bookingIds = (bookingData || []).map(b => b.id);
-      let sessionsByBooking = {};
-
-      if (bookingIds.length > 0) {
-        const { data: sessionData } = await supabase
-          .from('sessions')
-          .select('*')
-          .in('booking_id', bookingIds);
-
-        (sessionData || []).forEach(s => {
-          if (!sessionsByBooking[s.booking_id]) sessionsByBooking[s.booking_id] = [];
-          sessionsByBooking[s.booking_id].push(s);
-        });
-      }
-
-      // Build session maps per booking
-      const maps = {};
-      Object.entries(sessionsByBooking).forEach(([bId, sessions]) => {
-        maps[bId] = buildSessionMap(sessions);
-      });
-
-      setBookings(bookingData || []);
-      setSessionMaps(maps);
-
-      // Fetch parent ratings for completed bookings
-      const completedIds = (bookingData || []).filter(b => b.status === 'completed').map(b => b.id);
-      if (completedIds.length > 0) {
-        const { data: ratingData } = await supabase
-          .from('tutor_ratings')
-          .select(`
-            id, booking_id, star_rating, comment, created_at,
-            parent:parent_id ( full_name )
-          `)
-          .in('booking_id', completedIds);
-
-        const rMap = {};
-        (ratingData || []).forEach(r => { rMap[r.booking_id] = r; });
-        setRatingsMap(rMap);
-      }
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [user]);
-
-  useEffect(() => { fetchData(); }, [fetchData]);
-
-  // Get or init form for a booking+session
-  const getForm = (bookingId, sessionNum) => {
-    const existing = sessionMaps[bookingId]?.[sessionNum];
-    if (forms[bookingId]?.[sessionNum]) return forms[bookingId][sessionNum];
-    return {
-      topic:     existing?.topic_covered        || '',
-      indicator: existing?.performance_indicator || 'good',
-      comments:  existing?.tutor_comments       || '',
-    };
-  };
-
-  const setForm = (bookingId, sessionNum, key, value) => {
-    setForms(prev => ({
-      ...prev,
-      [bookingId]: {
-        ...(prev[bookingId] || {}),
-        [sessionNum]: {
-          ...getForm(bookingId, sessionNum),
-          [key]: value,
-        },
-      },
-    }));
-  };
-
-  const handleSaveSession = async (bookingId, sessionNum) => {
-    const form   = getForm(bookingId, sessionNum);
-    if (!form.topic.trim()) { alert('Please enter the topic covered.'); return; }
-
-    setSavingSession(`${bookingId}-${sessionNum}`);
-    try {
-      const existing = sessionMaps[bookingId]?.[sessionNum];
-
-      if (existing) {
-        // Update existing session
-        await supabase
-          .from('sessions')
-          .update({
-            topic_covered:         form.topic,
-            performance_indicator: form.indicator,
-            tutor_comments:        form.comments,
-          })
-          .eq('id', existing.id);
-      } else {
-        // Insert new session
-        await supabase.from('sessions').insert({
-          booking_id:            bookingId,
-          session_number:        sessionNum,
-          scheduled_date:        new Date().toISOString().split('T')[0],
-          status:                'completed',
-          topic_covered:         form.topic,
-          performance_indicator: form.indicator,
-          tutor_comments:        form.comments,
-        });
-      }
-
-      // Refresh data
-      await fetchData();
-    } catch (e) {
-      alert('Failed to save: ' + e.message);
-    } finally {
-      setSavingSession(null);
-    }
-  };
-
-  if (loading) return <Spinner dark size={32} />;
-
-  if (error) return (
-    <div className="card p-24 text-center">
-      <p className="text-sm mb-12" style={{ color: tokens.danger }}>Error: {error}</p>
-      <button className="btn btn-primary btn-sm" onClick={fetchData}>Retry</button>
+    <div style={{ position:'fixed', top:24, right:24, zIndex:99999, background:bg, borderRadius:12, padding:'14px 20px', fontSize:14, color, fontWeight:600, boxShadow:'0 4px 20px rgba(0,0,0,.12)', display:'flex', alignItems:'center', gap:10, maxWidth:380 }}>
+      <span>{type === 'error' ? '❌' : '✅'}</span>
+      <span style={{ flex:1 }}>{msg}</span>
+      <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color, fontSize:16, padding:0 }}>✕</button>
     </div>
   );
+}
 
+export default function TutorSessionsPage() {
+  const { user } = useAuth();
+  const { bookings, loading: bookingsLoading } = useBookings();
+
+  const [selectedBooking, setSelectedBooking] = useState(null);
+  const [modules,         setModules]         = useState([]);
+  const [progress,        setProgress]        = useState([]);
+  const [loading,         setLoading]         = useState(false);
+  const [toast,           setToast]           = useState(null);
+
+  // Module modal
+  const [moduleModal,  setModuleModal]  = useState(null); // null | 'create' | module object
+  const [moduleForm,   setModuleForm]   = useState({ title:'', content:'', quiz_type:'formative', pass_score:75, max_attempts:10 });
+  const [savingModule, setSavingModule] = useState(false);
+
+  // Quiz modal
+  const [quizModal,    setQuizModal]    = useState(null); // module object
+  const [questions,    setQuestions]    = useState([]);
+  const [loadingQuiz,  setLoadingQuiz]  = useState(false);
+  const [savingQuiz,   setSavingQuiz]   = useState(false);
+  const [newQ,         setNewQ]         = useState({ question_text:'', options:['','','',''], correct_index:0 });
+
+  const confirmedBookings = bookings.filter(b => b.status === 'confirmed' || b.status === 'pending_parent_confirm' || b.status === 'completed');
+
+  const showToast = (msg, type = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  const fetchModules = useCallback(async (bookingId) => {
+    setLoading(true);
+    const { data: mods } = await supabase
+      .from('session_modules')
+      .select('*')
+      .eq('booking_id', bookingId)
+      .order('module_number');
+
+    const { data: prog } = await supabase
+      .from('student_module_progress')
+      .select('*, student:student_id(name)')
+      .in('module_id', (mods || []).map(m => m.id));
+
+    setModules(mods || []);
+    setProgress(prog || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (selectedBooking) fetchModules(selectedBooking.id);
+  }, [selectedBooking, fetchModules]);
+
+  const fetchQuestions = async (moduleId) => {
+    setLoadingQuiz(true);
+    const { data } = await supabase
+      .from('module_quiz_questions')
+      .select('*')
+      .eq('module_id', moduleId)
+      .order('order_num');
+    setQuestions(data || []);
+    setLoadingQuiz(false);
+  };
+
+  // ── Save module ─────────────────────────────────────────────────────────
+  const handleSaveModule = async () => {
+    if (!moduleForm.title.trim() || !moduleForm.content.trim()) {
+      showToast('Title and content are required.', 'error'); return;
+    }
+    setSavingModule(true);
+    try {
+      if (moduleModal === 'create') {
+        const nextNum = modules.length + 1;
+        await supabase.from('session_modules').insert({
+          booking_id:   selectedBooking.id,
+          tutor_id:     user.id,
+          module_number: nextNum,
+          title:        moduleForm.title,
+          content:      moduleForm.content,
+          quiz_type:    moduleForm.quiz_type,
+          pass_score:   moduleForm.pass_score,
+          max_attempts: moduleForm.max_attempts,
+          status:       'draft',
+        });
+        showToast('Module created!');
+      } else {
+        await supabase.from('session_modules').update({
+          title:        moduleForm.title,
+          content:      moduleForm.content,
+          quiz_type:    moduleForm.quiz_type,
+          pass_score:   moduleForm.pass_score,
+          max_attempts: moduleForm.max_attempts,
+        }).eq('id', moduleModal.id);
+        showToast('Module updated!');
+      }
+      setModuleModal(null);
+      fetchModules(selectedBooking.id);
+    } catch (e) { showToast(e.message, 'error'); }
+    finally { setSavingModule(false); }
+  };
+
+  const handlePublishToggle = async (mod) => {
+    const newStatus = mod.status === 'published' ? 'draft' : 'published';
+    await supabase.from('session_modules').update({ status: newStatus }).eq('id', mod.id);
+    showToast(newStatus === 'published' ? 'Module published! Students can now see it.' : 'Module set to draft.');
+    fetchModules(selectedBooking.id);
+  };
+
+  const handleDeleteModule = async (mod) => {
+    if (!window.confirm(`Delete "${mod.title}"? This also deletes all quiz questions.`)) return;
+    await supabase.from('session_modules').delete().eq('id', mod.id);
+    showToast('Module deleted.');
+    fetchModules(selectedBooking.id);
+  };
+
+  // ── Quiz questions ──────────────────────────────────────────────────────
+  const openQuizModal = async (mod) => {
+    setQuizModal(mod);
+    setNewQ({ question_text:'', options:['','','',''], correct_index:0 });
+    await fetchQuestions(mod.id);
+  };
+
+  const handleAddQuestion = async () => {
+    if (!newQ.question_text.trim() || newQ.options.some(o => !o.trim())) {
+      showToast('Fill in the question and all 4 options.', 'error'); return;
+    }
+    setSavingQuiz(true);
+    try {
+      await supabase.from('module_quiz_questions').insert({
+        module_id:     quizModal.id,
+        question_text: newQ.question_text,
+        options:       newQ.options,
+        correct_index: newQ.correct_index,
+        order_num:     questions.length,
+      });
+      setNewQ({ question_text:'', options:['','','',''], correct_index:0 });
+      await fetchQuestions(quizModal.id);
+      showToast('Question added!');
+    } catch (e) { showToast(e.message, 'error'); }
+    finally { setSavingQuiz(false); }
+  };
+
+  const handleDeleteQuestion = async (qId) => {
+    await supabase.from('module_quiz_questions').delete().eq('id', qId);
+    await fetchQuestions(quizModal.id);
+    showToast('Question removed.');
+  };
+
+  const getModuleProgress = (modId) => progress.filter(p => p.module_id === modId);
+
+  if (bookingsLoading) return <Spinner dark size={32} />;
+
+  // ── BOOKING LIST VIEW ───────────────────────────────────────────────────
+  if (!selectedBooking) {
+    return (
+      <div className="fade-in">
+        <Toast msg={toast?.msg} type={toast?.type} onClose={() => setToast(null)} />
+        <div className="mb-24">
+          <h2 className="font-jakarta font-extrabold" style={{ fontSize:22 }}>Sessions Canvas</h2>
+          <p className="text-sm text-muted mt-4">Select a booking to create and manage learning modules for your student.</p>
+        </div>
+        {confirmedBookings.length === 0 ? (
+          <div className="card"><EmptyState icon="📚" title="No active bookings" description="Accept a booking request first to start creating modules." /></div>
+        ) : (
+          <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+            {confirmedBookings.map(b => (
+              <div key={b.id} className="card p-20" style={{ cursor:'pointer', border:`1.5px solid ${tokens.border}`, transition:'border-color 0.15s' }}
+                onClick={() => setSelectedBooking(b)}
+                onMouseEnter={e => e.currentTarget.style.borderColor = tokens.primary}
+                onMouseLeave={e => e.currentTarget.style.borderColor = tokens.border}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-jakarta font-bold" style={{ fontSize:15 }}>
+                      {b.student?.name} — <span style={{ textTransform:'capitalize' }}>{b.subject}</span>
+                    </div>
+                    <div className="text-xs text-muted mt-4">
+                      Parent: {b.parent?.full_name} · Grade {b.student?.grade_level} · {b.session_mode}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-10">
+                    <Badge variant={b.status === 'confirmed' ? 'success' : 'info'}>{b.status}</Badge>
+                    <Icon name="arrowRight" size={16} color={tokens.primary} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── CANVAS VIEW ─────────────────────────────────────────────────────────
   return (
     <div className="fade-in">
-      <div className="mb-24">
-        <h2 className="font-jakarta font-extrabold" style={{ fontSize: 22 }}>Sessions</h2>
-        <p className="text-sm text-muted mt-4">
-          Track and log feedback for each of your 8 sessions per booking.
-        </p>
+      <Toast msg={toast?.msg} type={toast?.type} onClose={() => setToast(null)} />
+
+      {/* Header */}
+      <div className="flex items-center gap-12 mb-24">
+        <button className="btn btn-ghost btn-sm" onClick={() => setSelectedBooking(null)}>
+          ← Back
+        </button>
+        <div style={{ flex:1 }}>
+          <h2 className="font-jakarta font-extrabold" style={{ fontSize:20 }}>
+            📚 {selectedBooking.student?.name} — {selectedBooking.subject}
+          </h2>
+          <p className="text-xs text-muted mt-2">Parent: {selectedBooking.parent?.full_name} · Grade {selectedBooking.student?.grade_level}</p>
+        </div>
+        <button className="btn btn-primary" onClick={() => {
+          setModuleForm({ title:'', content:'', quiz_type:'formative', pass_score:75, max_attempts:10 });
+          setModuleModal('create');
+        }}>
+          <Icon name="plus" size={14} /> Add Module
+        </button>
       </div>
 
-      {bookings.length === 0 ? (
-        <div className="card">
-          <EmptyState
-            icon="📋"
-            title="No active bookings"
-            description="Session logs will appear here once you have confirmed bookings."
-          />
+      {loading ? <Spinner dark size={28} /> : modules.length === 0 ? (
+        <div className="card p-40 text-center">
+          <div style={{ fontSize:52, marginBottom:16 }}>📖</div>
+          <div className="font-jakarta font-bold mb-8" style={{ fontSize:18 }}>No modules yet</div>
+          <p className="text-sm text-muted mb-20">Create your first module to start building the learning canvas for this student.</p>
+          <button className="btn btn-primary" onClick={() => {
+            setModuleForm({ title:'', content:'', quiz_type:'formative', pass_score:75, max_attempts:10 });
+            setModuleModal('create');
+          }}>
+            <Icon name="plus" size={14} /> Create First Module
+          </button>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {bookings.map(b => {
-            const isExpanded     = expandedId === b.id;
-            const sessionMap     = sessionMaps[b.id] || {};
-            const completedCount = Object.keys(sessionMap).length;
-            const parentRating   = ratingsMap[b.id];
-
+        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+          {modules.map((mod, idx) => {
+            const modProgress = getModuleProgress(mod.id);
+            const passed      = modProgress.filter(p => p.quiz_passed).length;
             return (
-              <div key={b.id} className="card" style={{ overflow: 'hidden' }}>
-
-                {/* ── Booking header row ── */}
-                <div style={{
-                  padding: '16px 24px',
-                  display: 'flex', alignItems: 'center', gap: 16,
-                  borderBottom: isExpanded ? `1px solid ${tokens.border}` : 'none',
-                }}>
-                  {/* Info */}
-                  <div style={{ flex: 1 }}>
-                    <div className="font-jakarta font-bold" style={{ fontSize: 15 }}>
-                      {b.student?.name || '—'}
-                    </div>
-                    <div className="text-xs text-muted mt-2">
-                      Parent: {b.parent?.full_name || '—'}
-                      {' · '}
-                      <span style={{ textTransform: 'capitalize' }}>{b.subject}</span>
-                    </div>
-                    {/* Show parent rating if available */}
-                    {parentRating && (
-                      <div className="flex items-center gap-6 mt-6">
-                        <StarDisplay value={parentRating.star_rating} size={13} />
-                        <span style={{ fontSize: 12, color: '#F59E0B', fontWeight: 700 }}>
-                          {parentRating.star_rating}/5
+              <div key={mod.id} style={{ border:`2px solid ${mod.status === 'published' ? tokens.primary : tokens.border}`, borderRadius:16, overflow:'hidden', background:'#fff' }}>
+                {/* Module header */}
+                <div style={{ padding:'16px 20px', background: mod.status === 'published' ? tokens.primaryLight : '#F9FAFB', display:'flex', alignItems:'center', gap:12 }}>
+                  <div style={{ width:40, height:40, borderRadius:12, background: mod.status === 'published' ? tokens.primary : '#E5E7EB', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                    <span style={{ color: mod.status === 'published' ? '#fff' : tokens.muted, fontWeight:800, fontSize:16 }}>{idx + 1}</span>
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div className="font-jakarta font-bold" style={{ fontSize:15 }}>Module {mod.module_number}: {mod.title}</div>
+                    <div className="flex items-center gap-8 mt-4">
+                      <span style={{ fontSize:11, padding:'2px 8px', borderRadius:10, background: mod.status === 'published' ? '#D1FAE5' : '#FEF9C3', color: mod.status === 'published' ? '#065F46' : '#92400E', fontWeight:700 }}>
+                        {mod.status === 'published' ? '✓ Published' : '✎ Draft'}
+                      </span>
+                      <span style={{ fontSize:11, color:tokens.muted }}>
+                        {QUIZ_TYPES.find(t => t.value === mod.quiz_type)?.label || mod.quiz_type}
+                      </span>
+                      <span style={{ fontSize:11, color:tokens.muted }}>Pass: {mod.pass_score}% · Max {mod.max_attempts} attempts</span>
+                      {modProgress.length > 0 && (
+                        <span style={{ fontSize:11, color: passed > 0 ? '#065F46' : '#92400E', fontWeight:600 }}>
+                          {passed}/{modProgress.length} student{modProgress.length !== 1 ? 's' : ''} passed
                         </span>
-                        <button
-                          onClick={() => setFeedbackModal(b)}
-                          style={{ fontSize: 11, color: tokens.primary, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, textDecoration: 'underline' }}
-                        >
-                          View Feedback
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Progress pill */}
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{
-                      fontSize: 12, fontWeight: 700, color: tokens.primary,
-                      background: tokens.primaryLight, padding: '4px 12px',
-                      borderRadius: 20, marginBottom: 6,
-                    }}>
-                      {completedCount} / 8 sessions logged
-                    </div>
-                    {/* Mini progress bar */}
-                    <div style={{
-                      width: 140, height: 6, background: '#E5E7EB',
-                      borderRadius: 3, overflow: 'hidden',
-                    }}>
-                      <div style={{
-                        height: '100%', borderRadius: 3,
-                        width: `${(completedCount / 8) * 100}%`,
-                        background: `linear-gradient(90deg, ${tokens.primary}, ${tokens.accent})`,
-                        transition: 'width 0.4s',
-                      }} />
+                      )}
                     </div>
                   </div>
-
-                  {/* View / Close button */}
-                  <button
-                    className="btn btn-sm"
-                    onClick={() => setExpandedId(isExpanded ? null : b.id)}
-                    style={{
-                      background: isExpanded ? '#F3F4F6' : tokens.primary,
-                      color:      isExpanded ? tokens.mid : '#fff',
-                      minWidth: 80,
-                    }}
-                  >
-                    {isExpanded
-                      ? <><Icon name="x" size={12} /> Close</>
-                      : <><Icon name="eye" size={12} /> View</>
-                    }
-                  </button>
+                  <div className="flex gap-8">
+                    <button className="btn btn-sm" style={{ background:'#EFF6FF', color:tokens.primary, border:`1px solid ${tokens.primary}20` }}
+                      onClick={() => openQuizModal(mod)}>
+                      <Icon name="clipboard" size={11} color={tokens.primary} /> Quiz
+                    </button>
+                    <button className="btn btn-sm" style={{ background:'#F9FAFB', color:tokens.mid, border:`1px solid ${tokens.border}` }}
+                      onClick={() => { setModuleForm({ title:mod.title, content:mod.content, quiz_type:mod.quiz_type, pass_score:mod.pass_score, max_attempts:mod.max_attempts }); setModuleModal(mod); }}>
+                      <Icon name="edit" size={11} /> Edit
+                    </button>
+                    <button className="btn btn-sm" style={{ background: mod.status === 'published' ? '#FEF9C3' : '#D1FAE5', color: mod.status === 'published' ? '#92400E' : '#065F46', border:'none' }}
+                      onClick={() => handlePublishToggle(mod)}>
+                      {mod.status === 'published' ? 'Unpublish' : '↑ Publish'}
+                    </button>
+                    <button className="btn btn-sm btn-danger" onClick={() => handleDeleteModule(mod)}>
+                      <Icon name="x" size={11} />
+                    </button>
+                  </div>
                 </div>
 
-                {/* ── Expanded: 8-session timeline ── */}
-                {isExpanded && (
-                  <div style={{ padding: '8px 0 16px' }}>
-                    {[1,2,3,4,5,6,7,8].map(num => {
-                      const existing  = sessionMap[num];
-                      const hasData   = !!existing;
-                      const form      = getForm(b.id, num);
-                      const indCfg    = hasData
-                        ? INDICATOR_CONFIG[existing.performance_indicator]
-                        : null;
-                      const isSaving  = savingSession === `${b.id}-${num}`;
-                      const dotColor  = hasData ? (indCfg?.dot || '#16A34A') : tokens.border;
-                      const isLast    = num === 8;
+                {/* Module content preview */}
+                <div style={{ padding:'16px 20px', borderTop:`1px solid ${tokens.border}` }}>
+                  <div style={{ fontSize:13, color:tokens.mid, lineHeight:1.7, maxHeight:80, overflow:'hidden', position:'relative' }}>
+                    {mod.content.substring(0, 300)}{mod.content.length > 300 ? '...' : ''}
+                  </div>
+                </div>
 
-                      return (
-                        <div key={num} style={{ display: 'flex', gap: 0 }}>
-                          {/* ── Timeline line + circle ── */}
-                          <div style={{
-                            display: 'flex', flexDirection: 'column',
-                            alignItems: 'center', paddingLeft: 24,
-                            minWidth: 52,
-                          }}>
-                            <div style={{
-                              width: 34, height: 34, borderRadius: '50%',
-                              background: hasData ? dotColor + '20' : '#F3F4F6',
-                              border: `2px solid ${hasData ? dotColor : tokens.border}`,
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              flexShrink: 0, zIndex: 1,
-                            }}>
-                              {hasData
-                                ? <Icon name="check" size={13} color={dotColor} />
-                                : <span style={{ fontSize: 11, fontWeight: 800, color: tokens.muted }}>{num}</span>
-                              }
-                            </div>
-                            {!isLast && (
-                              <div style={{
-                                width: 2, flex: 1, minHeight: 16,
-                                background: hasData ? dotColor + '40' : '#E5E7EB',
-                              }} />
-                            )}
-                          </div>
-
-                          {/* ── Session content ── */}
-                          <div style={{
-                            flex: 1, paddingRight: 24, paddingTop: 4,
-                            paddingBottom: isLast ? 8 : 20,
-                          }}>
-                            {/* Session header */}
-                            <div className="flex items-center gap-8 mb-10">
-                              <span className="font-jakarta font-bold" style={{ fontSize: 14 }}>
-                                Session {num}
-                              </span>
-                              {hasData && indCfg && (
-                                <span style={{
-                                  padding: '2px 10px', borderRadius: 20,
-                                  fontSize: 11, fontWeight: 700,
-                                  background: indCfg.bg, color: indCfg.color,
-                                }}>
-                                  {indCfg.label}
-                                </span>
-                              )}
-                              {hasData && existing.scheduled_date && (
-                                <span className="text-xs text-muted">
-                                  {new Date(existing.scheduled_date).toLocaleDateString('en-PH', {
-                                    month: 'short', day: 'numeric', year: 'numeric',
-                                  })}
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Form fields */}
-                            <div style={{
-                              background: hasData ? '#F9FAFB' : '#FFFBEB',
-                              border: `1px solid ${hasData ? tokens.border : '#FDE68A'}`,
-                              borderRadius: 12, padding: '16px 18px',
-                            }}>
-                              {!hasData && (
-                                <div style={{
-                                  fontSize: 12, color: '#92400E', marginBottom: 12,
-                                  fontWeight: 600,
-                                }}>
-                                  📝 Session {num} — Not yet logged
-                                </div>
-                              )}
-
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                                {/* Topic */}
-                                <div style={{ gridColumn: '1 / -1' }}>
-                                  <label style={{
-                                    fontSize: 11, fontWeight: 700, color: tokens.muted,
-                                    textTransform: 'uppercase', letterSpacing: '0.5px',
-                                    display: 'block', marginBottom: 5,
-                                  }}>
-                                    Topic Covered
-                                  </label>
-                                  <input
-                                    className="input"
-                                    placeholder="e.g. Addition of Unlike Fractions"
-                                    value={form.topic}
-                                    onChange={e => setForm(b.id, num, 'topic', e.target.value)}
-                                    style={{ fontSize: 13 }}
-                                  />
-                                </div>
-
-                                {/* Performance */}
-                                <div>
-                                  <label style={{
-                                    fontSize: 11, fontWeight: 700, color: tokens.muted,
-                                    textTransform: 'uppercase', letterSpacing: '0.5px',
-                                    display: 'block', marginBottom: 5,
-                                  }}>
-                                    Performance
-                                  </label>
-                                  <select
-                                    className="select"
-                                    value={form.indicator}
-                                    onChange={e => setForm(b.id, num, 'indicator', e.target.value)}
-                                    style={{ fontSize: 13 }}
-                                  >
-                                    <option value="good">Good</option>
-                                    <option value="improving">Improving</option>
-                                    <option value="needs_improvement">Needs Improvement</option>
-                                  </select>
-                                </div>
-
-                                {/* Save button */}
-                                <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-                                  <button
-                                    className="btn btn-primary btn-sm btn-full"
-                                    disabled={isSaving || !form.topic.trim()}
-                                    onClick={() => handleSaveSession(b.id, num)}
-                                    style={{ fontSize: 12 }}
-                                  >
-                                    {isSaving
-                                      ? 'Saving...'
-                                      : hasData
-                                        ? <><Icon name="edit" size={12} /> Update</>
-                                        : <><Icon name="check" size={12} /> Save Session</>
-                                    }
-                                  </button>
-                                </div>
-
-                                {/* Comments */}
-                                <div style={{ gridColumn: '1 / -1' }}>
-                                  <label style={{
-                                    fontSize: 11, fontWeight: 700, color: tokens.muted,
-                                    textTransform: 'uppercase', letterSpacing: '0.5px',
-                                    display: 'block', marginBottom: 5,
-                                  }}>
-                                    Comments <span style={{ fontWeight: 400, textTransform: 'none' }}>(Optional — parents will see this)</span>
-                                  </label>
-                                  <textarea
-                                    className="textarea"
-                                    placeholder="Describe the student's performance, areas to improve, what to focus on next session..."
-                                    value={form.comments}
-                                    onChange={e => setForm(b.id, num, 'comments', e.target.value)}
-                                    style={{ fontSize: 13, minHeight: 72 }}
-                                  />
-                                </div>
-                              </div>
-
-                              {/* Saved indicator */}
-                              {hasData && (
-                                <div style={{
-                                  marginTop: 10, paddingTop: 10,
-                                  borderTop: `1px solid ${tokens.border}`,
-                                  fontSize: 11, color: '#16A34A', fontWeight: 600,
-                                  display: 'flex', alignItems: 'center', gap: 5,
-                                }}>
-                                  <Icon name="check" size={11} color="#16A34A" />
-                                  Logged on {existing.scheduled_date
-                                    ? new Date(existing.scheduled_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
-                                    : 'saved'}
-                                </div>
-                              )}
-                            </div>
-                          </div>
+                {/* Student progress */}
+                {modProgress.length > 0 && (
+                  <div style={{ padding:'12px 20px', borderTop:`1px solid ${tokens.border}`, background:'#FAFAFA' }}>
+                    <div className="text-xs text-muted uppercase font-bold mb-8" style={{ letterSpacing:'0.5px' }}>Student Progress</div>
+                    <div className="flex gap-12" style={{ flexWrap:'wrap' }}>
+                      {modProgress.map(p => (
+                        <div key={p.id} style={{ fontSize:12, display:'flex', alignItems:'center', gap:6 }}>
+                          <span style={{ width:8, height:8, borderRadius:'50%', background: p.quiz_passed ? tokens.success : '#F59E0B', flexShrink:0 }} />
+                          <span>{p.student?.name}</span>
+                          <span style={{ color:tokens.muted }}>{p.quiz_passed ? `✓ Passed (${p.quiz_score}%)` : `${p.attempts}/${p.module_id} attempts`}</span>
                         </div>
-                      );
-                    })}
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -476,54 +332,114 @@ export default function SessionsPage() {
         </div>
       )}
 
-      {/* Parent Feedback Modal */}
+      {/* ── Create/Edit Module Modal ── */}
       <Modal
-        open={!!feedbackModal}
-        onClose={() => setFeedbackModal(null)}
-        title="Parent Feedback & Rating"
-        footer={<button className="btn btn-ghost" onClick={() => setFeedbackModal(null)}>Close</button>}
+        open={!!moduleModal}
+        onClose={() => setModuleModal(null)}
+        title={moduleModal === 'create' ? '📖 Create New Module' : `✏️ Edit Module ${moduleModal?.module_number}`}
+        footer={<>
+          <button className="btn btn-ghost" onClick={() => setModuleModal(null)}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleSaveModule} disabled={savingModule}>
+            {savingModule ? 'Saving...' : moduleModal === 'create' ? 'Create Module' : 'Save Changes'}
+          </button>
+        </>}
       >
-        {feedbackModal && (() => {
-          const rating = ratingsMap[feedbackModal.id];
-          return (
-            <div>
-              <div style={{
-                background: '#FFFBEB', border: '1px solid #FDE68A',
-                borderRadius: 12, padding: 20, marginBottom: 20, textAlign: 'center',
-              }}>
-                <div style={{ fontSize: 48, fontWeight: 800, color: '#F59E0B', lineHeight: 1 }}>
-                  {rating?.star_rating || '—'}
-                </div>
-                {rating && <StarDisplay value={rating.star_rating} size={22} />}
-                <div className="text-sm text-muted mt-8">
-                  Rating from {rating?.parent?.full_name || feedbackModal.parent?.full_name || 'Parent'}
-                </div>
-              </div>
+        <FormGroup label="Module Title">
+          <input className="input" placeholder="e.g. Introduction to Fractions" value={moduleForm.title} onChange={e => setModuleForm(f => ({ ...f, title:e.target.value }))} />
+        </FormGroup>
 
-              <div style={{ background: '#F9FAFB', borderRadius: 10, padding: 16 }}>
-                <div className="text-xs text-muted uppercase font-bold mb-8" style={{ letterSpacing: '0.5px' }}>
-                  Parent's Comment
-                </div>
-                {rating?.comment ? (
-                  <p style={{ fontSize: 14, color: tokens.dark, lineHeight: 1.7, margin: 0 }}>
-                    "{rating.comment}"
-                  </p>
-                ) : (
-                  <p style={{ fontSize: 13, color: tokens.muted, margin: 0 }}>No comment provided.</p>
-                )}
-                <div className="text-xs text-muted mt-10">
-                  {rating?.created_at
-                    ? new Date(rating.created_at).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })
-                    : ''}
-                </div>
-              </div>
+        <FormGroup label="Module Content" hint="Write the lesson content, explanation, examples, etc. Students will read this before taking the quiz.">
+          <textarea className="textarea" placeholder="Write the full lesson content here...&#10;&#10;You can include:&#10;- Explanations&#10;- Examples&#10;- Key concepts&#10;- Step-by-step solutions" value={moduleForm.content} onChange={e => setModuleForm(f => ({ ...f, content:e.target.value }))} style={{ minHeight:220, fontFamily:'inherit', lineHeight:1.7 }} />
+        </FormGroup>
 
-              <div style={{ marginTop: 16, background: tokens.primaryLight, borderRadius: 10, padding: 14, fontSize: 13, color: tokens.primary }}>
-                <strong>Student:</strong> {feedbackModal.student?.name} · <strong>Subject:</strong> <span style={{ textTransform: 'capitalize' }}>{feedbackModal.subject}</span>
+        <FormGroup label="Quiz Type">
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+            {QUIZ_TYPES.map(t => (
+              <button key={t.value} type="button" onClick={() => setModuleForm(f => ({ ...f, quiz_type:t.value }))}
+                style={{ padding:'10px 12px', borderRadius:10, cursor:'pointer', border:`2px solid ${moduleForm.quiz_type === t.value ? tokens.primary : tokens.border}`, background: moduleForm.quiz_type === t.value ? tokens.primaryLight : '#FAFAFA', textAlign:'left', transition:'all 0.15s' }}>
+                <div style={{ fontWeight:700, fontSize:13, color: moduleForm.quiz_type === t.value ? tokens.primary : tokens.dark }}>{t.label}</div>
+                <div style={{ fontSize:11, color:tokens.muted }}>{t.desc}</div>
+              </button>
+            ))}
+          </div>
+        </FormGroup>
+
+        <div className="grid-2">
+          <FormGroup label="Pass Score (%)" hint="Minimum score to pass this module.">
+            <input className="input" type="number" min="50" max="100" value={moduleForm.pass_score} onChange={e => setModuleForm(f => ({ ...f, pass_score:Number(e.target.value) }))} />
+          </FormGroup>
+          <FormGroup label="Max Attempts" hint="How many times can student retry the quiz.">
+            <input className="input" type="number" min="1" max="20" value={moduleForm.max_attempts} onChange={e => setModuleForm(f => ({ ...f, max_attempts:Number(e.target.value) }))} />
+          </FormGroup>
+        </div>
+      </Modal>
+
+      {/* ── Quiz Questions Modal ── */}
+      <Modal
+        open={!!quizModal}
+        onClose={() => setQuizModal(null)}
+        title={`📝 Quiz Questions — ${quizModal?.title}`}
+        footer={<button className="btn btn-ghost" onClick={() => setQuizModal(null)}>Done</button>}
+      >
+        {loadingQuiz ? <Spinner dark size={24} /> : (
+          <div>
+            {/* Existing questions */}
+            {questions.length > 0 && (
+              <div style={{ marginBottom:20 }}>
+                <div className="text-xs text-muted uppercase font-bold mb-12" style={{ letterSpacing:'0.5px' }}>
+                  {questions.length} Question{questions.length !== 1 ? 's' : ''}
+                </div>
+                {questions.map((q, i) => (
+                  <div key={q.id} style={{ background:'#F9FAFB', borderRadius:10, padding:14, marginBottom:10, border:`1px solid ${tokens.border}` }}>
+                    <div className="flex items-start justify-between gap-10">
+                      <div style={{ flex:1 }}>
+                        <div className="font-semibold mb-8" style={{ fontSize:13 }}>Q{i + 1}. {q.question_text}</div>
+                        <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                          {q.options.map((opt, oi) => (
+                            <div key={oi} style={{ fontSize:12, padding:'4px 8px', borderRadius:6, background: oi === q.correct_index ? '#D1FAE5' : '#fff', color: oi === q.correct_index ? '#065F46' : tokens.mid, border:`1px solid ${oi === q.correct_index ? '#6EE7B7' : tokens.border}`, fontWeight: oi === q.correct_index ? 700 : 400 }}>
+                              {String.fromCharCode(65 + oi)}. {opt} {oi === q.correct_index ? '✓' : ''}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <button onClick={() => handleDeleteQuestion(q.id)} style={{ background:'#FEE2E2', border:'none', borderRadius:6, padding:'4px 8px', cursor:'pointer', color:'#DC2626', fontSize:12, flexShrink:0 }}>
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
+            )}
+
+            {/* Add new question */}
+            <div style={{ background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:12, padding:16 }}>
+              <div className="font-jakarta font-bold mb-12" style={{ fontSize:14, color:'#1D4ED8' }}>
+                ➕ Add Question
+              </div>
+              <FormGroup label="Question">
+                <input className="input" placeholder="e.g. What is ½ + ¼?" value={newQ.question_text} onChange={e => setNewQ(q => ({ ...q, question_text:e.target.value }))} />
+              </FormGroup>
+              {newQ.options.map((opt, i) => (
+                <FormGroup key={i} label={`Option ${String.fromCharCode(65 + i)}${i === newQ.correct_index ? ' ✓ (Correct)' : ''}`}>
+                  <div className="flex gap-8">
+                    <input className="input" placeholder={`Option ${String.fromCharCode(65 + i)}`} value={opt}
+                      onChange={e => setNewQ(q => ({ ...q, options: q.options.map((o, oi) => oi === i ? e.target.value : o) }))}
+                      style={{ flex:1, borderColor: i === newQ.correct_index ? tokens.success : undefined }} />
+                    {i !== newQ.correct_index && (
+                      <button type="button" onClick={() => setNewQ(q => ({ ...q, correct_index:i }))}
+                        style={{ padding:'8px 12px', borderRadius:8, background:'#F9FAFB', border:`1px solid ${tokens.border}`, cursor:'pointer', fontSize:12, color:tokens.muted, whiteSpace:'nowrap' }}>
+                        Set Correct
+                      </button>
+                    )}
+                  </div>
+                </FormGroup>
+              ))}
+              <button className="btn btn-primary btn-full" onClick={handleAddQuestion} disabled={savingQuiz}>
+                {savingQuiz ? 'Adding...' : '+ Add Question'}
+              </button>
             </div>
-          );
-        })()}
+          </div>
+        )}
       </Modal>
     </div>
   );

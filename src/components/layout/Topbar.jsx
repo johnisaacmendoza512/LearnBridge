@@ -22,6 +22,8 @@ const pageNames = {
   '/users':              'User Management',
   '/transactions':       'Transactions',
   '/settings':           'Settings',
+  '/modules': 'Modules',
+  '/quizzes': 'Quizzes',
 };
 
 export default function Topbar() {

@@ -23,6 +23,9 @@ import ParentSessionsPage from './pages/parent/ParentSessionsPage';
 
 // Tutor
 import TutorDashboard    from './pages/tutor/TutorDashboard';
+import TutorBookingsPage from './pages/tutor/TutorBookingsPage';
+import TutorModulesPage  from './pages/tutor/TutorModulesPage';
+import TutorQuizzesPage  from './pages/tutor/TutorQuizzesPage';
 import TutorProfilePage  from './pages/tutor/TutorProfilePage';
 import CertificationPage from './pages/tutor/CertificationPage';
 import SessionsPage      from './pages/tutor/SessionsPage';
@@ -51,6 +54,12 @@ function RoleProfile() {
   const { profile } = useAuth();
   if (profile?.role === 'tutor') return <TutorProfilePage />;
   return <ParentProfilePage />;
+}
+
+function RoleBookings() {
+  const { profile } = useAuth();
+  if (profile?.role === 'tutor') return <TutorBookingsPage />;
+  return <BookingsPage />;
 }
 
 function RoleQuestionBank() {
@@ -101,8 +110,11 @@ function AppRoutes() {
 
           {/* Tutor-only */}
           <Route element={<ProtectedRoute allowedRoles={['tutor']} />}>
+            <Route path="/my-profile"   element={<TutorProfilePage />} />
             <Route path="/certification" element={<CertificationPage />} />
             <Route path="/wallet"        element={<WalletPage />}        />
+            <Route path="/modules" element={<TutorModulesPage />} />
+            <Route path="/quizzes" element={<TutorQuizzesPage />} />
           </Route>
 
           {/* Admin-only */}
@@ -114,7 +126,7 @@ function AppRoutes() {
 
           {/* Shared routes */}
           <Route path="/my-profile"    element={<RoleProfile />}      />
-          <Route path="/bookings"      element={<BookingsPage />}      />
+          <Route path="/bookings" element={<RoleBookings />} />
           <Route path="/sessions"      element={<RoleSessions />}      />
           <Route path="/question-bank" element={<RoleQuestionBank />}  />
           <Route path="/messages"      element={<RoleMessages />}      />

@@ -21,8 +21,6 @@ const navItems = {
     { to: '/certification', label: 'Certification',icon: 'award'     },
     { to: '/bookings',      label: 'Bookings',     icon: 'calendar'  },
     { to: '/sessions',      label: 'Sessions',     icon: 'book'      },
-    { to: '/modules',      label: 'Modules',      icon: 'book'      },
-    { to: '/quizzes',      label: 'Quizzes',      icon: 'clipboard' },
     { to: '/question-bank', label: 'Question Bank',icon: 'clipboard' },
     { to: '/wallet',        label: 'Wallet',       icon: 'wallet'    },
     { to: '/messages',      label: 'Messages',     icon: 'message',  badge: true },

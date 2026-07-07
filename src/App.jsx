@@ -24,8 +24,6 @@ import ParentSessionsPage from './pages/parent/ParentSessionsPage';
 // Tutor
 import TutorDashboard    from './pages/tutor/TutorDashboard';
 import TutorBookingsPage from './pages/tutor/TutorBookingsPage';
-import TutorModulesPage  from './pages/tutor/TutorModulesPage';
-import TutorQuizzesPage  from './pages/tutor/TutorQuizzesPage';
 import TutorProfilePage  from './pages/tutor/TutorProfilePage';
 import CertificationPage from './pages/tutor/CertificationPage';
 import SessionsPage      from './pages/tutor/SessionsPage';
@@ -77,9 +75,8 @@ function RoleMessages() {
 
 function RoleSessions() {
   const { profile } = useAuth();
-  if (profile?.role === 'admin')  return <AdminSessionsPage />;
-  if (profile?.role === 'parent') return <ParentSessionsPage />;
-  return <SessionsPage />;
+  if (profile?.role === 'tutor') return <SessionsPage />;
+  return <ParentSessionsPage />;
 }
 
 function AppRoutes() {
@@ -113,8 +110,6 @@ function AppRoutes() {
             <Route path="/my-profile"   element={<TutorProfilePage />} />
             <Route path="/certification" element={<CertificationPage />} />
             <Route path="/wallet"        element={<WalletPage />}        />
-            <Route path="/modules" element={<TutorModulesPage />} />
-            <Route path="/quizzes" element={<TutorQuizzesPage />} />
           </Route>
 
           {/* Admin-only */}

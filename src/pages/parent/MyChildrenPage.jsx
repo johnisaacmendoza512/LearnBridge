@@ -1,564 +1,475 @@
-import { useState, useCallback } from 'react';
-import { useAuth } from '../../context/AuthContext';
+import { useState } from 'react';
+import Avatar from '../../components/ui/Avatar';
+import Icon from '../../components/ui/Icon';
+import Modal from '../../components/ui/Modal';
+import FormGroup from '../../components/ui/FormGroup';
+import EmptyState from '../../components/ui/EmptyState';
+import Spinner from '../../components/ui/Spinner';
 import { useStudents } from '../../hooks/useStudents';
 import { supabase } from '../../lib/supabase';
-import FormGroup from '../../components/ui/FormGroup';
-import Modal from '../../components/ui/Modal';
-import Icon from '../../components/ui/Icon';
-import Avatar from '../../components/ui/Avatar';
-import Spinner from '../../components/ui/Spinner';
-import EmptyState from '../../components/ui/EmptyState';
 import tokens from '../../lib/tokens';
 
-function shuffle(arr) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
+const LEVELS = [
+  {
+    value: 'primary',
+    label: 'Primary Level',
+    grades: 'Grade 1–3',
+    desc: 'Focuses on basic skills such as reading, writing, mathematics, and foundational knowledge.',
+    color: '#059669',
+    bg: '#D1FAE5',
+    border: '#6EE7B7',
+    icon: '🌱',
+  },
+  {
+    value: 'intermediate',
+    label: 'Intermediate Level',
+    grades: 'Grade 4–6',
+    desc: 'Focuses on more advanced concepts, critical thinking, problem-solving, and preparation for junior high school.',
+    color: '#2563EB',
+    bg: '#DBEAFE',
+    border: '#93C5FD',
+    icon: '🚀',
+  },
+];
+
+const PASS_SCORE = 70; // percent to pass
+const QUESTIONS_PER_ASSESSMENT = 10;
+
+function Toast({ msg, type, onClose }) {
+  if (!msg) return null;
+  const bg = type === 'error' ? '#FEE2E2' : '#D1FAE5';
+  const color = type === 'error' ? '#DC2626' : '#065F46';
+  return (
+    <div style={{ position:'fixed', top:24, right:24, zIndex:99999, background:bg, borderRadius:12, padding:'14px 20px', fontSize:14, color, fontWeight:600, boxShadow:'0 4px 20px rgba(0,0,0,.12)', display:'flex', alignItems:'center', gap:10, maxWidth:380 }}>
+      <span>{type === 'error' ? '❌' : '✅'}</span>
+      <span style={{ flex:1 }}>{msg}</span>
+      <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color, fontSize:16, padding:0 }}>✕</button>
+    </div>
+  );
 }
-
-function analyzeResults(questions, answers) {
-  const byTopic = {};
-  questions.forEach((q, i) => {
-    if (!byTopic[q.topic]) byTopic[q.topic] = { correct: 0, total: 0 };
-    byTopic[q.topic].total++;
-    const userAnswer    = answers[i];
-    const correctAnswer = q.correct_answer;
-    if (userAnswer !== undefined &&
-        String(userAnswer).trim() === String(correctAnswer).trim()) {
-      byTopic[q.topic].correct++;
-    }
-  });
-  const strong = [], weak = [];
-  Object.entries(byTopic).forEach(([topic, { correct, total }]) => {
-    const pct = (correct / total) * 100;
-    if (pct >= 70) strong.push(topic);
-    else           weak.push(topic);
-  });
-  const totalCorrect = questions.filter((q, i) =>
-    String(answers[i] ?? '').trim() === String(q.correct_answer ?? '').trim()
-  ).length;
-  const score = questions.length > 0
-    ? Math.round((totalCorrect / questions.length) * 100)
-    : 0;
-  return { strong, weak, score, totalCorrect, total: questions.length };
-}
-
-const PERF_LABEL = (score) => {
-  if (score >= 80) return { label: 'Advanced',      color: '#16A34A', bg: '#D1FAE5' };
-  if (score >= 60) return { label: 'Proficient',    color: '#CA8A04', bg: '#FEF9C3' };
-  if (score >= 40) return { label: 'Developing',    color: '#EA580C', bg: '#FFF7ED' };
-  return             { label: 'Needs Support', color: '#DC2626', bg: '#FEE2E2' };
-};
-
-const SUBJECTS = ['english', 'mathematics'];
 
 export default function MyChildrenPage() {
-  const { user } = useAuth();
-  const { students, loading, refresh } = useStudents();
+  const { students, loading, addStudent, refresh } = useStudents();
 
-  const [uiStep,      setUiStep]      = useState('none');
-  const [childForm,   setChildForm]   = useState({ name: '', grade_level: 3, notes: '' });
-  const [questions,   setQuestions]   = useState({ english: [], mathematics: [] });
-  const [currentSubj, setCurrentSubj] = useState('english');
-  const [currentQ,    setCurrentQ]    = useState(0);
-  const [answers,     setAnswers]     = useState({ english: {}, mathematics: {} });
-  const [selected,    setSelected]    = useState(null);
-  const [results,     setResults]     = useState(null);
-  const [loadingQ,    setLoadingQ]    = useState(false);
-  const [saving,      setSaving]      = useState(false);
+  const [toast,        setToast]        = useState(null);
+  const [showAdd,      setShowAdd]      = useState(false);
+  const [saving,       setSaving]       = useState(false);
+  const [form,         setForm]         = useState({ name:'', grade_level:'2', notes:'' });
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   // Edit child state
-  const [editingChild,  setEditingChild]  = useState(null); // student object
-  const [editForm,      setEditForm]      = useState({ name: '', grade_level: 3, notes: '' });
-  const [savingEdit,    setSavingEdit]    = useState(false);
+  const [editChild,    setEditChild]    = useState(null);
+  const [editForm,     setEditForm]     = useState({ name:'', grade_level:'2', notes:'' });
+  const [savingEdit,   setSavingEdit]   = useState(false);
+  const setE = (k, v) => setEditForm(f => ({ ...f, [k]: v }));
 
-  const setF  = (k, v) => setChildForm(f => ({ ...f, [k]: v }));
-  const setEF = (k, v) => setEditForm(f => ({ ...f, [k]: v }));
+  // Pre-Assessment state
+  const [assessStudent,   setAssessStudent]   = useState(null); // student object
+  const [assessStep,      setAssessStep]      = useState('level'); // 'level' | 'quiz' | 'result'
+  const [selectedLevel,   setSelectedLevel]   = useState(null);
+  const [questions,       setQuestions]       = useState([]);
+  const [currentQ,        setCurrentQ]        = useState(0);
+  const [answers,         setAnswers]         = useState({});
+  const [quizResult,      setQuizResult]      = useState(null);
+  const [loadingAssess,   setLoadingAssess]   = useState(false);
+  const [submitting,      setSubmitting]      = useState(false);
+  const [answerError,     setAnswerError]     = useState(false);
 
-  const handleRemoveChild = async (studentId, studentName) => {
-    if (!window.confirm(`Remove ${studentName} from your children? This cannot be undone.`)) return;
-    const { error } = await supabase.from('students').delete().eq('id', studentId);
-    if (error) { alert(error.message); return; }
-    await refresh();
+  const showToast = (msg, type = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3500);
   };
 
-  const handleOpenEdit = (student) => {
-    setEditForm({
-      name:        student.name        || '',
-      grade_level: student.grade_level || 3,
-      notes:       student.notes       || '',
-    });
-    setEditingChild(student);
-  };
-
-  const handleSaveEdit = async () => {
-    if (!editForm.name.trim()) { alert("Please enter your child's name."); return; }
-    setSavingEdit(true);
-    try {
-      const { error } = await supabase
-        .from('students')
-        .update({
-          name:        editForm.name,
-          grade_level: Number(editForm.grade_level),
-          notes:       editForm.notes || null,
-        })
-        .eq('id', editingChild.id);
-      if (error) throw error;
-      await refresh();
-      setEditingChild(null);
-    } catch (e) {
-      alert('Failed to save: ' + e.message);
-    } finally {
-      setSavingEdit(false);
-    }
-  };
-
-  const fetchQuestions = useCallback(async () => {
-    setLoadingQ(true);
-    const fetched = { english: [], mathematics: [] };
-    for (const subj of SUBJECTS) {
-      const { data } = await supabase
-        .from('questions')
-        .select('id, subject, topic, question_text, options, correct_answer, difficulty')
-        .eq('subject', subj)
-        .eq('status', 'approved')
-        .limit(50);
-      fetched[subj] = shuffle(data || []).slice(0, 10);
-    }
-    setQuestions(fetched);
-    setLoadingQ(false);
-  }, []);
-
-  const handleOpenForm = () => {
-    setChildForm({ name: '', grade_level: 3, notes: '' });
-    setUiStep('form');
-  };
-
-  const handleStartAssessment = async () => {
-    if (!childForm.name.trim()) { alert("Please enter your child's name."); return; }
-    await fetchQuestions();
-    setCurrentSubj('english');
-    setCurrentQ(0);
-    setAnswers({ english: {}, mathematics: {} });
-    setSelected(null);
-    setResults(null);
-    setUiStep('assessing_english');
-  };
-
-  const handleNext = () => {
-    if (selected === null) { alert('Please select an answer.'); return; }
-    const subj = currentSubj;
-    const qs   = questions[subj];
-    const updatedAnswers = {
-      ...answers,
-      [subj]: { ...answers[subj], [currentQ]: selected },
-    };
-    setAnswers(updatedAnswers);
-    setSelected(null);
-    if (currentQ < qs.length - 1) {
-      setCurrentQ(currentQ + 1);
-    } else {
-      if (subj === 'english') {
-        setCurrentSubj('mathematics');
-        setCurrentQ(0);
-        setSelected(null);
-        setUiStep('assessing_mathematics');
-      } else {
-        const engResult  = analyzeResults(questions.english,     updatedAnswers.english);
-        const mathResult = analyzeResults(questions.mathematics, updatedAnswers.mathematics);
-        setResults({ english: engResult, mathematics: mathResult });
-        setUiStep('results');
-      }
-    }
-  };
-
-  const handleSaveChild = async () => {
-    if (!results) return;
+  const handleAdd = async () => {
+    if (!form.name.trim()) { showToast('Please enter the child\'s name.', 'error'); return; }
     setSaving(true);
     try {
-      const weaknesses = [
-        ...results.english.weak.map(t => `English: ${t}`),
-        ...results.mathematics.weak.map(t => `Math: ${t}`),
-      ];
-      const strengths = [
-        ...results.english.strong.map(t => `English: ${t}`),
-        ...results.mathematics.strong.map(t => `Math: ${t}`),
-      ];
-      const { error } = await supabase.from('students').insert({
-        parent_id:   user.id,
-        name:        childForm.name,
-        grade_level: Number(childForm.grade_level),
-        notes:       childForm.notes || null,
-        assessment_results: {
-          english:     { score: results.english.score,     strong: results.english.strong,     weak: results.english.weak     },
-          mathematics: { score: results.mathematics.score, strong: results.mathematics.strong, weak: results.mathematics.weak },
-          completedAt: new Date().toISOString(),
-          weaknesses,
-          strengths,
-          summary: weaknesses.length === 0
-            ? 'No major weaknesses detected.'
-            : `Needs improvement in: ${weaknesses.join(', ')}.`,
-        },
-      });
-      if (error) throw error;
-      await refresh();
-      setUiStep('none');
+      await addStudent({ name:form.name, grade_level:parseInt(form.grade_level), notes:form.notes });
+      setShowAdd(false);
+      setForm({ name:'', grade_level:'2', notes:'' });
+      showToast('Child profile added!');
     } catch (e) {
-      alert('Failed to save: ' + e.message);
-    } finally {
-      setSaving(false);
-    }
+      showToast(e.message, 'error');
+    } finally { setSaving(false); }
   };
 
-  const resetFlow = () => {
-    setUiStep('none');
-    setResults(null);
-    setSelected(null);
+  const handleEditSave = async () => {
+    if (!editForm.name.trim()) { showToast('Please enter the child\'s name.', 'error'); return; }
+    setSavingEdit(true);
+    try {
+      const { error } = await supabase.from('students').update({
+        name:        editForm.name,
+        grade_level: parseInt(editForm.grade_level),
+        notes:       editForm.notes || null,
+      }).eq('id', editChild.id);
+      if (error) throw error;
+      setEditChild(null);
+      if (refresh) await refresh();
+      showToast('Child profile updated!');
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally { setSavingEdit(false); }
+  };
+
+  // Start assessment — pick level then fetch questions
+  const startAssessment = (student) => {
+    setAssessStudent(student);
+    setAssessStep('level');
+    setSelectedLevel(null);
+    setQuestions([]);
+    setAnswers({});
     setCurrentQ(0);
+    setQuizResult(null);
+    setAnswerError(false);
+  };
+
+  const handleLevelSelect = async (level) => {
+    setSelectedLevel(level);
+    setLoadingAssess(true);
+    try {
+      const { data, error } = await supabase
+        .from('questions')
+        .select('*')
+        .eq('level', level.value)
+        .eq('status', 'approved')
+        .limit(QUESTIONS_PER_ASSESSMENT);
+
+      if (error) throw error;
+      if (!data || data.length === 0) {
+        showToast('No approved questions available for this level yet. Please try again later.', 'error');
+        setSelectedLevel(null);
+        setLoadingAssess(false);
+        return;
+      }
+
+      // Shuffle questions
+      const shuffled = [...data].sort(() => Math.random() - 0.5).slice(0, QUESTIONS_PER_ASSESSMENT);
+      setQuestions(shuffled);
+      setAssessStep('quiz');
+    } catch (e) {
+      showToast(e.message, 'error');
+      setSelectedLevel(null);
+    } finally { setLoadingAssess(false); }
+  };
+
+  const handleAnswer = (questionIdx, answer) => {
+    setAnswers(a => ({ ...a, [questionIdx]: answer }));
+    setAnswerError(false);
+  };
+
+  const handleSubmitQuiz = async () => {
+    if (answers[currentQ] === undefined) { setAnswerError(true); return; }
+    if (currentQ < questions.length - 1) {
+      setCurrentQ(q => q + 1);
+      setAnswerError(false);
+      return;
+    }
+
+    // Submit
+    setSubmitting(true);
+    try {
+      let correct = 0;
+      questions.forEach((q, i) => {
+        const opts = q.options;
+        const correctLetter = q.correct_answer; // 'A', 'B', 'C', 'D'
+        const selectedLetter = answers[i];
+        if (selectedLetter === correctLetter) correct++;
+      });
+
+      const score = Math.round((correct / questions.length) * 100);
+      const passed = score >= PASS_SCORE;
+
+      // Save result to student profile
+      const { error } = await supabase.from('students').update({
+        assessment_level:        selectedLevel.value,
+        assessment_score:        score,
+        assessment_completed_at: new Date().toISOString(),
+        assessment_results:      { level:selectedLevel.value, score, passed, correct, total:questions.length },
+      }).eq('id', assessStudent.id);
+
+      if (error) throw error;
+
+      setQuizResult({ score, passed, correct, total:questions.length });
+      setAssessStep('result');
+      if (refresh) await refresh();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally { setSubmitting(false); }
   };
 
   if (loading) return <Spinner dark size={32} />;
 
-  const activeSubj  = currentSubj;
-  const activeQs    = questions[activeSubj] || [];
-  const activeQ     = activeQs[currentQ];
-  const isAssessing = uiStep === 'assessing_english' || uiStep === 'assessing_mathematics';
-
-  const parseOptions = (opts) => {
-    if (!opts) return [];
-    if (Array.isArray(opts)) return opts;
-    if (typeof opts === 'object') return Object.values(opts);
-    return [];
-  };
-
   return (
     <div className="fade-in">
+      <Toast msg={toast?.msg} type={toast?.type} onClose={() => setToast(null)} />
+
       <div className="flex items-center justify-between mb-24">
         <div>
-          <h2 className="font-jakarta font-extrabold" style={{ fontSize: 22 }}>My Children</h2>
-          <p className="text-sm text-muted mt-4">Manage your children's profiles and learning progress.</p>
+          <h2 className="font-jakarta font-extrabold" style={{ fontSize:22 }}>My Children</h2>
+          <p className="text-sm text-muted mt-4">Manage your children's profiles and learning assessments.</p>
         </div>
-        <button className="btn btn-primary" onClick={handleOpenForm}>
+        <button className="btn btn-primary" onClick={() => setShowAdd(true)}>
           <Icon name="plus" size={14} /> Add Child
         </button>
       </div>
 
       {students.length === 0 ? (
         <div className="card">
-          <EmptyState icon="👧" title="No children added yet"
-            description="Add your child's profile to get started with finding the right tutor." />
+          <EmptyState icon="👦" title="No children yet" description="Add your first child profile to get started with LearnBridge."
+            action={<button className="btn btn-primary" onClick={() => setShowAdd(true)}><Icon name="plus" size={14} /> Add Child</button>} />
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="grid-2">
           {students.map((s, i) => {
-            const ar   = s.assessment_results;
-            const eng  = ar?.english;
-            const math = ar?.mathematics;
+            const assessed = !!s.assessment_results;
+            const level = LEVELS.find(l => l.value === s.assessment_level);
             return (
               <div key={s.id} className="card p-24">
-                <div className="flex items-center gap-16 mb-16">
-                  <Avatar name={s.name} size={48} colorIndex={i} />
-                  <div>
-                    <div className="font-jakarta font-bold" style={{ fontSize: 17 }}>{s.name}</div>
-                    <div className="text-sm text-muted">Grade {s.grade_level}</div>
-                    {s.notes && <div className="text-xs text-muted mt-2">{s.notes}</div>}
+                <div className="flex items-center justify-between mb-16">
+                  <div className="flex items-center gap-12">
+                    <Avatar name={s.name} size={44} colorIndex={i} />
+                    <div>
+                      <div className="font-jakarta font-bold" style={{ fontSize:16 }}>{s.name}</div>
+                      <div className="text-sm text-muted">Grade {s.grade_level}</div>
+                    </div>
                   </div>
-                  <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {ar && (
-                      <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#D1FAE5', color: '#065F46' }}>
-                        ✓ Pre-assessed
-                      </span>
-                    )}
-                    {/* Edit button */}
-                    <button
-                      onClick={() => handleOpenEdit(s)}
-                      style={{
-                        padding: '5px 12px', borderRadius: 8,
-                        border: `1.5px solid ${tokens.primary}40`,
-                        background: tokens.primaryLight, color: tokens.primary,
-                        fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                        display: 'flex', alignItems: 'center', gap: 5,
-                      }}
-                    >
-                      <Icon name="edit" size={12} color={tokens.primary} /> Edit
-                    </button>
-                    {/* Remove button */}
-                    <button
-                      onClick={() => handleRemoveChild(s.id, s.name)}
-                      style={{
-                        padding: '5px 12px', borderRadius: 8,
-                        border: '1.5px solid #FCA5A5',
-                        background: '#FFF5F5', color: '#DC2626',
-                        fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                        display: 'flex', alignItems: 'center', gap: 5,
-                      }}
-                    >
-                      <Icon name="trash" size={12} color="#DC2626" /> Remove
-                    </button>
-                  </div>
+                  <span className={`badge ${assessed ? 'badge-success' : 'badge-warning'}`}>
+                    {assessed ? 'Assessed' : 'Pending Assessment'}
+                  </span>
                 </div>
 
-                {ar && (
-                  <div style={{ borderTop: `1px solid ${tokens.border}`, paddingTop: 16 }}>
-                    <div className="font-semibold mb-10" style={{ fontSize: 13 }}>Assessment Results</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                      {[['english', 'English', eng], ['mathematics', 'Mathematics', math]].map(([key, label, res]) => {
-                        if (!res) return null;
-                        const perf = PERF_LABEL(res.score);
-                        return (
-                          <div key={key} style={{ background: '#F9FAFB', borderRadius: 10, padding: 14 }}>
-                            <div className="flex items-center justify-between mb-8">
-                              <span className="font-semibold" style={{ fontSize: 13 }}>{label}</span>
-                              <span style={{ padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: perf.bg, color: perf.color }}>
-                                {res.score}% · {perf.label}
-                              </span>
-                            </div>
-                            {res.weak?.length > 0 && (
-                              <div className="text-xs" style={{ color: '#DC2626', marginBottom: 4 }}>⚠️ Weakness: {res.weak.join(', ')}</div>
-                            )}
-                            {res.strong?.length > 0 && (
-                              <div className="text-xs" style={{ color: '#16A34A' }}>✓ Strong in: {res.strong.join(', ')}</div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {ar.summary && (
-                      <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8, background: '#FFF7ED', border: '1px solid #FED7AA', fontSize: 12, color: '#92400E' }}>
-                        📋 {ar.summary}
+                {/* Assessment result */}
+                {assessed && level && (
+                  <div style={{ background:level.bg, border:`1px solid ${level.border}`, borderRadius:10, padding:'10px 14px', marginBottom:16 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      <span style={{ fontSize:18 }}>{level.icon}</span>
+                      <div>
+                        <div style={{ fontSize:13, fontWeight:700, color:level.color }}>{level.label} · {level.grades}</div>
+                        <div style={{ fontSize:11, color:level.color, opacity:0.8 }}>Score: {s.assessment_score}% · {s.assessment_results?.passed ? 'Passed ✓' : 'Needs improvement'}</div>
                       </div>
-                    )}
+                    </div>
                   </div>
                 )}
+
+                {s.notes && <p className="text-sm text-muted mb-16" style={{ lineHeight:1.5 }}>{s.notes}</p>}
+
+                <div className="flex gap-8">
+                  <button className="btn btn-primary btn-sm" onClick={() => startAssessment(s)}>
+                    <Icon name="clipboard" size={12} /> {assessed ? 'Re-Assess' : 'Assess'}
+                  </button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { setEditChild(s); setEditForm({ name:s.name, grade_level:String(s.grade_level), notes:s.notes||'' }); }}>
+                    <Icon name="edit" size={12} /> Edit
+                  </button>
+
+                </div>
               </div>
             );
           })}
+
+          {/* Add placeholder */}
+          <div className="card p-24" onClick={() => setShowAdd(true)}
+            style={{ cursor:'pointer', border:`2px dashed ${tokens.border}`, display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:12, minHeight:200 }}>
+            <div style={{ width:48, height:48, borderRadius:12, background:tokens.primaryLight, display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <Icon name="plus" size={22} color={tokens.primary} />
+            </div>
+            <div style={{ textAlign:'center' }}>
+              <div className="font-semibold text-mid">Add Another Child</div>
+              <div className="text-xs text-muted mt-4">Register a new learner profile</div>
+            </div>
+          </div>
         </div>
       )}
+
+      {/* Add Child Modal */}
+      <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Add Child Profile"
+        footer={<>
+          <button className="btn btn-ghost" onClick={() => setShowAdd(false)}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleAdd} disabled={saving || !form.name}>
+            {saving ? <Spinner /> : <><Icon name="plus" size={14} /> Add Child</>}
+          </button>
+        </>}>
+        <FormGroup label="Child's Full Name">
+          <input className="input" placeholder="e.g. Maria Santos" value={form.name} onChange={e => set('name', e.target.value)} />
+        </FormGroup>
+        <FormGroup label="Grade Level">
+          <select className="select" value={form.grade_level} onChange={e => set('grade_level', e.target.value)}>
+            {[1,2,3,4,5,6].map(g => <option key={g} value={g}>Grade {g}</option>)}
+          </select>
+        </FormGroup>
+        <FormGroup label="Notes (Optional)" hint="Special learning needs or context for the tutor.">
+          <textarea className="textarea" placeholder="e.g. Struggles with word problems..." value={form.notes} onChange={e => set('notes', e.target.value)} />
+        </FormGroup>
+      </Modal>
 
       {/* Edit Child Modal */}
+      <Modal open={!!editChild} onClose={() => setEditChild(null)} title="✏️ Edit Child Profile"
+        footer={<>
+          <button className="btn btn-ghost" onClick={() => setEditChild(null)}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleEditSave} disabled={savingEdit}>
+            {savingEdit ? <Spinner /> : 'Save Changes'}
+          </button>
+        </>}>
+        <FormGroup label="Child's Full Name">
+          <input className="input" placeholder="e.g. Maria Santos" value={editForm.name} onChange={e => setE('name', e.target.value)} />
+        </FormGroup>
+        <FormGroup label="Grade Level">
+          <select className="select" value={editForm.grade_level} onChange={e => setE('grade_level', e.target.value)}>
+            {[1,2,3,4,5,6].map(g => <option key={g} value={g}>Grade {g}</option>)}
+          </select>
+        </FormGroup>
+        <FormGroup label="Notes (Optional)">
+          <textarea className="textarea" placeholder="e.g. Struggles with word problems..." value={editForm.notes} onChange={e => setE('notes', e.target.value)} />
+        </FormGroup>
+      </Modal>
+
+      {/* Pre-Assessment Modal */}
       <Modal
-        open={!!editingChild}
-        onClose={() => setEditingChild(null)}
-        title={`Edit ${editingChild?.name || 'Child'}'s Profile`}
-        footer={<>
-          <button className="btn btn-ghost" onClick={() => setEditingChild(null)}>Cancel</button>
-          <button className="btn btn-primary" onClick={handleSaveEdit} disabled={savingEdit}>
-            {savingEdit ? <Spinner /> : <><Icon name="check" size={13} /> Save Changes</>}
-          </button>
-        </>}
+        open={!!assessStudent}
+        onClose={() => { if (assessStep !== 'quiz') setAssessStudent(null); }}
+        title={
+          assessStep === 'level'  ? `📋 Pre-Assessment — ${assessStudent?.name}` :
+          assessStep === 'quiz'   ? `${selectedLevel?.icon} ${selectedLevel?.label} Assessment` :
+          '🎉 Assessment Complete!'
+        }
+        footer={
+          assessStep === 'result' ? (
+            <button className="btn btn-primary" onClick={() => setAssessStudent(null)}>Done</button>
+          ) : assessStep === 'level' ? (
+            <button className="btn btn-ghost" onClick={() => setAssessStudent(null)}>Cancel</button>
+          ) : null
+        }
       >
-        <FormGroup label="Child's Full Name">
-          <input
-            className="input"
-            value={editForm.name}
-            onChange={e => setEF('name', e.target.value)}
-            placeholder="e.g. Maria Santos"
-          />
-        </FormGroup>
-        <FormGroup label="Grade Level">
-          <select
-            className="select"
-            value={editForm.grade_level}
-            onChange={e => setEF('grade_level', e.target.value)}
-          >
-            {[2,3,4,5,6].map(g => <option key={g} value={g}>Grade {g}</option>)}
-          </select>
-        </FormGroup>
-        <FormGroup label="Notes (Optional)" hint="Special learning needs or context for the tutor.">
-          <textarea
-            className="textarea"
-            value={editForm.notes}
-            onChange={e => setEF('notes', e.target.value)}
-            placeholder="e.g. Struggles with word problems..."
-          />
-        </FormGroup>
-      </Modal>
-
-      {/* STEP 1 — Child form */}
-      <Modal open={uiStep === 'form'} onClose={resetFlow} title="Add Child Profile"
-        footer={<>
-          <button className="btn btn-ghost" onClick={resetFlow}>Cancel</button>
-          <button className="btn btn-primary" onClick={handleStartAssessment}>
-            <Icon name="clipboard" size={13} /> Next: Pre-Assessment →
-          </button>
-        </>}
-      >
-        <div style={{ background: tokens.primaryLight, border: `1px solid ${tokens.primary}30`, borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: tokens.primary, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-          <Icon name="alertCircle" size={14} color={tokens.primary} />
-          <span>After filling in your child's details, they will take a short <strong>pre-assessment</strong> (English + Mathematics) to help match them with the right tutor.</span>
-        </div>
-        <FormGroup label="Child's Full Name">
-          <input className="input" placeholder="e.g. Maria Santos" value={childForm.name} onChange={e => setF('name', e.target.value)} />
-        </FormGroup>
-        <FormGroup label="Grade Level">
-          <select className="select" value={childForm.grade_level} onChange={e => setF('grade_level', e.target.value)}>
-            {[2,3,4,5,6].map(g => <option key={g} value={g}>Grade {g}</option>)}
-          </select>
-        </FormGroup>
-        <FormGroup label="Notes (Optional)" hint="Special learning needs or context for the tutor.">
-          <textarea className="textarea" placeholder="e.g. Struggles with word problems..." value={childForm.notes} onChange={e => setF('notes', e.target.value)} />
-        </FormGroup>
-      </Modal>
-
-      {/* STEP 2 — Assessment */}
-      {isAssessing && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <div style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 600, maxHeight: '90vh', overflowY: 'auto', padding: 36 }}>
-            {loadingQ ? (
-              <div style={{ textAlign: 'center', padding: 40 }}>
-                <Spinner dark size={32} />
-                <p className="text-sm text-muted mt-16">Loading assessment questions...</p>
-              </div>
-            ) : activeQs.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 40 }}>
-                <div style={{ fontSize: 36, marginBottom: 12 }}>⚠️</div>
-                <p className="font-semibold mb-8">No questions available yet</p>
-                <p className="text-sm text-muted mb-20">The question bank for {activeSubj} doesn't have approved questions yet.</p>
-                <div className="flex gap-8" style={{ justifyContent: 'center' }}>
-                  {activeSubj === 'english' ? (
-                    <button className="btn btn-primary" onClick={() => { setCurrentSubj('mathematics'); setCurrentQ(0); setUiStep('assessing_mathematics'); }}>
-                      Skip to Math →
-                    </button>
-                  ) : (
-                    <button className="btn btn-primary" onClick={() => {
-                      supabase.from('students').insert({ parent_id: user.id, name: childForm.name, grade_level: Number(childForm.grade_level), notes: childForm.notes || null })
-                        .then(() => { refresh(); resetFlow(); });
-                    }}>
-                      Save Without Assessment
-                    </button>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="flex items-center justify-between mb-20">
-                  <div>
-                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700, background: activeSubj === 'english' ? '#EFF6FF' : '#F0FDF4', color: activeSubj === 'english' ? '#1D4ED8' : '#15803D' }}>
-                      {activeSubj === 'english' ? '📖' : '🔢'} {activeSubj === 'english' ? 'English' : 'Mathematics'} Assessment
+        {/* LEVEL SELECTION */}
+        {assessStep === 'level' && (
+          <div>
+            <p className="text-sm text-muted mb-20" style={{ lineHeight:1.7 }}>
+              Select the appropriate difficulty level for <strong>{assessStudent?.name}</strong> (Grade {assessStudent?.grade_level}).
+              The pre-assessment will include {QUESTIONS_PER_ASSESSMENT} questions based on the selected level.
+            </p>
+            <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+              {LEVELS.map(lvl => (
+                <button key={lvl.value} type="button"
+                  onClick={() => handleLevelSelect(lvl)}
+                  disabled={loadingAssess}
+                  style={{ padding:'18px 20px', borderRadius:14, cursor:'pointer', border:`2px solid ${lvl.border}`, background:lvl.bg, textAlign:'left', transition:'all 0.15s', opacity:loadingAssess?0.7:1 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:14 }}>
+                    <span style={{ fontSize:36 }}>{lvl.icon}</span>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800, fontSize:16, color:lvl.color }}>{lvl.label}</div>
+                      <div style={{ fontSize:13, color:lvl.color, opacity:0.8, marginTop:2 }}>{lvl.grades}</div>
+                      <div style={{ fontSize:12, color:lvl.color, opacity:0.6, marginTop:4, lineHeight:1.5 }}>{lvl.desc}</div>
                     </div>
-                    <div className="text-xs text-muted mt-4">Question {currentQ + 1} of {activeQs.length} · {activeSubj === 'english' ? 'Math next' : 'Last subject'}</div>
+                    {loadingAssess && selectedLevel?.value === lvl.value
+                      ? <Spinner size={20} />
+                      : <Icon name="arrowRight" size={18} color={lvl.color} />
+                    }
                   </div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: tokens.primary, background: tokens.primaryLight, padding: '4px 12px', borderRadius: 20 }}>
-                    {childForm.name}
-                  </div>
-                </div>
-
-                <div style={{ height: 6, background: '#E5E7EB', borderRadius: 3, marginBottom: 24, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', borderRadius: 3, width: `${((currentQ + 1) / activeQs.length) * 100}%`, background: activeSubj === 'english' ? 'linear-gradient(90deg,#3B82F6,#6366F1)' : 'linear-gradient(90deg,#10B981,#059669)', transition: 'width 0.3s' }} />
-                </div>
-
-                <div className="flex gap-8 mb-24">
-                  {SUBJECTS.map(s => {
-                    const isDone   = s === 'english' && activeSubj === 'mathematics';
-                    const isActive = s === activeSubj;
-                    return (
-                      <div key={s} style={{ flex: 1, padding: '8px 12px', borderRadius: 10, textAlign: 'center', border: `1.5px solid ${isActive ? tokens.primary : isDone ? tokens.success : tokens.border}`, background: isActive ? tokens.primaryLight : isDone ? '#D1FAE5' : '#F9FAFB', fontSize: 12, fontWeight: 700, color: isActive ? tokens.primary : isDone ? '#065F46' : tokens.muted }}>
-                        {isDone ? '✓ ' : isActive ? '● ' : '○ '}{s.charAt(0).toUpperCase() + s.slice(1)}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {activeQ && (
-                  <>
-                    <div style={{ display: 'inline-block', padding: '2px 10px', borderRadius: 6, background: '#F3F4F6', fontSize: 11, fontWeight: 700, color: tokens.muted, marginBottom: 12, textTransform: 'capitalize' }}>
-                      {activeQ.topic} · {activeQ.difficulty}
-                    </div>
-                    <div className="font-jakarta font-bold mb-20" style={{ fontSize: 17, lineHeight: 1.5, color: tokens.dark }}>
-                      {activeQ.question_text}
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
-                      {parseOptions(activeQ.options).map((opt, idx) => {
-                        const letter   = ['A','B','C','D'][idx];
-                        const isChosen = selected === opt;
-                        return (
-                          <button key={idx} onClick={() => setSelected(opt)}
-                            style={{ width: '100%', textAlign: 'left', cursor: 'pointer', padding: '14px 18px', borderRadius: 12, border: `2px solid ${isChosen ? tokens.primary : tokens.border}`, background: isChosen ? tokens.primaryLight : '#FAFAFA', display: 'flex', alignItems: 'center', gap: 14, transition: 'all 0.15s' }}>
-                            <div style={{ width: 30, height: 30, borderRadius: '50%', flexShrink: 0, background: isChosen ? tokens.primary : '#E5E7EB', color: isChosen ? '#fff' : tokens.mid, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800 }}>
-                              {letter}
-                            </div>
-                            <span style={{ fontSize: 14, color: isChosen ? tokens.primary : tokens.dark, fontWeight: isChosen ? 600 : 400 }}>
-                              {opt}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <button className="btn btn-primary btn-full btn-lg" onClick={handleNext} disabled={selected === null}>
-                      {currentQ < activeQs.length - 1 ? 'Next Question →' : activeSubj === 'english' ? 'Next: Mathematics Assessment →' : 'Finish Assessment ✓'}
-                    </button>
-                  </>
-                )}
-              </>
-            )}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* STEP 3 — Results */}
-      {uiStep === 'results' && results && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <div style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', padding: 36 }}>
-            <div style={{ textAlign: 'center', marginBottom: 24 }}>
-              <div style={{ fontSize: 48, marginBottom: 8 }}>📊</div>
-              <h2 className="font-jakarta font-extrabold" style={{ fontSize: 22 }}>Assessment Complete!</h2>
-              <p className="text-sm text-muted mt-4">Here are <strong>{childForm.name}</strong>'s results for Grade {childForm.grade_level}</p>
+        {/* QUIZ */}
+        {assessStep === 'quiz' && questions[currentQ] && (
+          <div>
+            {/* Progress */}
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
+              <div style={{ flex:1, height:6, background:'#E5E7EB', borderRadius:3, overflow:'hidden', marginRight:16 }}>
+                <div style={{ height:'100%', borderRadius:3, width:`${((currentQ+1)/questions.length)*100}%`, background:`linear-gradient(90deg,${selectedLevel?.color},${tokens.primary})`, transition:'width 0.3s' }} />
+              </div>
+              <span style={{ fontSize:12, color:tokens.muted, fontWeight:600, whiteSpace:'nowrap' }}>
+                {currentQ+1} / {questions.length}
+              </span>
             </div>
-            {SUBJECTS.map(subj => {
-              const res   = results[subj];
-              const perf  = PERF_LABEL(res.score);
-              const label = subj === 'english' ? '📖 English' : '🔢 Mathematics';
-              return (
-                <div key={subj} style={{ border: `1px solid ${tokens.border}`, borderRadius: 14, padding: 20, marginBottom: 16 }}>
-                  <div className="flex items-center justify-between mb-12">
-                    <span className="font-jakarta font-bold" style={{ fontSize: 15 }}>{label}</span>
-                    <span style={{ padding: '4px 14px', borderRadius: 20, fontSize: 13, fontWeight: 700, background: perf.bg, color: perf.color }}>
-                      {res.score}% — {perf.label}
-                    </span>
-                  </div>
-                  <div style={{ height: 8, background: '#E5E7EB', borderRadius: 4, marginBottom: 14, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', borderRadius: 4, width: `${res.score}%`, background: perf.color, transition: 'width 0.6s' }} />
-                  </div>
-                  <div className="text-xs text-muted mb-10">{res.totalCorrect} out of {res.total} correct</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {res.strong.length > 0 && (
-                      <div style={{ padding: '8px 12px', borderRadius: 8, background: '#D1FAE5', fontSize: 12, color: '#065F46' }}>
-                        ✅ <strong>Strong:</strong> {res.strong.join(' · ')}
-                      </div>
-                    )}
-                    {res.weak.length > 0 && (
-                      <div style={{ padding: '8px 12px', borderRadius: 8, background: '#FEE2E2', fontSize: 12, color: '#DC2626' }}>
-                        ⚠️ <strong>Needs work:</strong> {res.weak.join(' · ')}
-                      </div>
-                    )}
-                    {res.weak.length === 0 && res.strong.length === 0 && (
-                      <div style={{ padding: '8px 12px', borderRadius: 8, background: '#F3F4F6', fontSize: 12, color: tokens.muted }}>
-                        Not enough data to determine topics.
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-            <div style={{ background: tokens.primaryLight, border: `1px solid ${tokens.primary}30`, borderRadius: 12, padding: 16, marginBottom: 24, fontSize: 13, color: tokens.primary }}>
-              <div className="font-semibold mb-6">📋 Summary for tutors</div>
-              <p style={{ margin: 0, lineHeight: 1.6 }}>
-                {[...results.english.weak.map(t => `English (${t})`), ...results.mathematics.weak.map(t => `Math (${t})`)].length === 0
-                  ? `${childForm.name} shows strong performance across all tested topics.`
-                  : `${childForm.name} needs improvement in: ${[...results.english.weak.map(t => `English (${t})`), ...results.mathematics.weak.map(t => `Math (${t})`)].join(', ')}.`
+
+            <div style={{ marginBottom:4 }}>
+              <span style={{ fontSize:11, fontWeight:700, padding:'2px 10px', borderRadius:20, background:selectedLevel?.bg, color:selectedLevel?.color }}>
+                {selectedLevel?.icon} {selectedLevel?.label}
+              </span>
+              <span style={{ fontSize:11, color:tokens.muted, marginLeft:8 }}>{questions[currentQ].topic}</span>
+            </div>
+
+            <h3 style={{ fontSize:16, fontWeight:700, lineHeight:1.6, margin:'12px 0 16px' }}>
+              {questions[currentQ].question_text}
+            </h3>
+
+            <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:16 }}>
+              {['A','B','C','D'].map((letter, idx) => {
+                const opts = questions[currentQ].options;
+                // Handle array format ["opt1","opt2","opt3","opt4"]
+                // and object format {A:"opt1", B:"opt2", C:"opt3", D:"opt4"}
+                let optText = '';
+                if (Array.isArray(opts)) {
+                  optText = opts[idx] || '';
+                } else if (opts && typeof opts === 'object') {
+                  optText = opts[letter] || opts[letter.toLowerCase()] || opts[idx] || '';
                 }
-              </p>
+                if (!optText) return null;
+                const selected = answers[currentQ] === letter;
+                return (
+                  <button key={letter} type="button"
+                    onClick={() => handleAnswer(currentQ, letter)}
+                    style={{ padding:'13px 16px', borderRadius:10, cursor:'pointer', border:`2px solid ${selected?selectedLevel?.color:tokens.border}`, background:selected?selectedLevel?.bg:'#FAFAFA', color:selected?selectedLevel?.color:tokens.dark, textAlign:'left', fontSize:14, fontWeight:selected?600:400, transition:'all 0.15s', display:'flex', alignItems:'center', gap:12 }}>
+                    <span style={{ width:28, height:28, borderRadius:'50%', flexShrink:0, background:selected?selectedLevel?.color:'#E5E7EB', color:selected?'#fff':tokens.mid, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700 }}>
+                      {letter}
+                    </span>
+                    {optText}
+                  </button>
+                );
+              })}
             </div>
-            <button className="btn btn-primary btn-full btn-lg" onClick={handleSaveChild} disabled={saving}>
-              {saving ? <Spinner /> : <><Icon name="check" size={14} /> Save {childForm.name}'s Profile</>}
+
+            {answerError && (
+              <div style={{ background:'#FEE2E2', border:'1px solid #FCA5A5', borderRadius:8, padding:'8px 14px', fontSize:13, color:'#DC2626', fontWeight:600, marginBottom:12 }}>
+                ⚠️ Please select an answer before continuing.
+              </div>
+            )}
+
+            <button className="btn btn-primary btn-full btn-lg" onClick={handleSubmitQuiz} disabled={submitting}>
+              {submitting ? 'Submitting...' : currentQ < questions.length - 1 ? 'Next →' : 'Submit Assessment'}
             </button>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* RESULT */}
+        {assessStep === 'result' && quizResult && (
+          <div style={{ textAlign:'center', padding:'8px 0' }}>
+            <div style={{ fontSize:64, marginBottom:16 }}>{quizResult.passed ? '🎉' : '📚'}</div>
+            <div className="font-jakarta font-extrabold mb-8" style={{ fontSize:24, color:quizResult.passed?'#065F46':'#D97706' }}>
+              {quizResult.passed ? 'Assessment Passed!' : 'Keep Practicing!'}
+            </div>
+            <div style={{ fontSize:52, fontWeight:900, color:quizResult.passed?selectedLevel?.color:'#F59E0B', marginBottom:8 }}>
+              {quizResult.score}%
+            </div>
+            <p style={{ fontSize:14, color:tokens.muted, marginBottom:20 }}>
+              {quizResult.correct} of {quizResult.total} correct
+            </p>
+
+            {/* Score bar */}
+            <div style={{ width:'100%', height:12, background:'#E5E7EB', borderRadius:6, overflow:'hidden', position:'relative', marginBottom:8 }}>
+              <div style={{ position:'absolute', left:`${PASS_SCORE}%`, top:0, bottom:0, width:2, background:'#374151', zIndex:2 }} />
+              <div style={{ height:'100%', borderRadius:6, width:`${quizResult.score}%`, background:quizResult.passed?`linear-gradient(90deg,${selectedLevel?.color},#4ADE80)`:'linear-gradient(90deg,#F87171,#F59E0B)', transition:'width 1s' }} />
+            </div>
+            <div style={{ fontSize:11, color:tokens.muted, marginBottom:24 }}>{PASS_SCORE}% pass mark</div>
+
+            {/* Level badge */}
+            <div style={{ display:'inline-flex', alignItems:'center', gap:10, padding:'12px 20px', borderRadius:12, background:selectedLevel?.bg, border:`1px solid ${selectedLevel?.border}`, marginBottom:16 }}>
+              <span style={{ fontSize:24 }}>{selectedLevel?.icon}</span>
+              <div style={{ textAlign:'left' }}>
+                <div style={{ fontSize:14, fontWeight:700, color:selectedLevel?.color }}>{selectedLevel?.label}</div>
+                <div style={{ fontSize:12, color:selectedLevel?.color, opacity:0.7 }}>{selectedLevel?.grades}</div>
+              </div>
+            </div>
+
+            <p style={{ fontSize:13, color:tokens.muted, lineHeight:1.6 }}>
+              {quizResult.passed
+                ? `${assessStudent?.name} is ready for ${selectedLevel?.label} content! This will help tutors tailor their teaching approach.`
+                : `${assessStudent?.name} may need more practice. You can re-take the assessment anytime.`}
+            </p>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

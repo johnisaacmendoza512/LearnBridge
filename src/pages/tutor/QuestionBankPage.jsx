@@ -1,260 +1,313 @@
-import { useState, useCallback } from 'react';
-import { useAuth } from '../../context/AuthContext';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../context/AuthContext';
 import Badge from '../../components/ui/Badge';
+import Modal from '../../components/ui/Modal';
+import FormGroup from '../../components/ui/FormGroup';
 import Icon from '../../components/ui/Icon';
 import EmptyState from '../../components/ui/EmptyState';
 import Spinner from '../../components/ui/Spinner';
 import tokens from '../../lib/tokens';
 
-const DIFF_MAP = { easy: 'success', medium: 'warning', hard: 'danger' };
+const LEVELS = [
+  {
+    value: 'primary',
+    label: 'Primary Level',
+    grades: 'Grade 1–3',
+    desc: 'Basic skills: reading, writing, mathematics, foundational knowledge',
+    color: '#059669',
+    bg: '#D1FAE5',
+    icon: '🌱',
+  },
+  {
+    value: 'intermediate',
+    label: 'Intermediate Level',
+    grades: 'Grade 4–6',
+    desc: 'Advanced concepts, critical thinking, problem-solving, junior high prep',
+    color: '#2563EB',
+    bg: '#DBEAFE',
+    icon: '🚀',
+  },
+];
+
+const SUBJECTS = ['mathematics', 'english'];
+
+function Toast({ msg, type, onClose }) {
+  if (!msg) return null;
+  const bg = type === 'error' ? '#FEE2E2' : '#D1FAE5';
+  const color = type === 'error' ? '#DC2626' : '#065F46';
+  return (
+    <div style={{ position:'fixed', top:24, right:24, zIndex:99999, background:bg, borderRadius:12, padding:'14px 20px', fontSize:14, color, fontWeight:600, boxShadow:'0 4px 20px rgba(0,0,0,.12)', display:'flex', alignItems:'center', gap:10, maxWidth:380 }}>
+      <span>{type === 'error' ? '❌' : '✅'}</span>
+      <span style={{ flex:1 }}>{msg}</span>
+      <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color, fontSize:16, padding:0 }}>✕</button>
+    </div>
+  );
+}
 
 export default function QuestionBankPage() {
   const { user } = useAuth();
-  const [questions, setQuestions] = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [showAdd,   setShowAdd]   = useState(false);
-  const [saving,    setSaving]    = useState(false);
-  const [form, setForm] = useState({
-    subject: 'mathematics', topic: '', difficulty: 'easy',
-    question: '', optA: '', optB: '', optC: '', optD: '',
-    correctIndex: null, // 0=A, 1=B, 2=C, 3=D
-  });
 
+  const [questions,   setQuestions]   = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [toast,       setToast]       = useState(null);
+  const [filterLevel, setFilterLevel] = useState('all');
+  const [filterSubj,  setFilterSubj]  = useState('all');
+  const [showAdd,     setShowAdd]     = useState(false);
+  const [saving,      setSaving]      = useState(false);
+  const [deleting,    setDeleting]    = useState(null);
+
+  const [form, setForm] = useState({
+    level: 'primary',
+    subject: 'mathematics',
+    topic: '',
+    question: '',
+    optA: '', optB: '', optC: '', optD: '',
+    correct: 'A',
+  });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  const showToast = (msg, type = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3500);
+  };
+
   const fetchQuestions = useCallback(async () => {
-    if (!user) return;
     setLoading(true);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('questions')
-      .select('id, subject, topic, difficulty, question_text, options, correct_answer, status, created_at')
+      .select('*')
       .eq('tutor_id', user.id)
       .order('created_at', { ascending: false });
+    if (error) showToast(error.message, 'error');
     setQuestions(data || []);
     setLoading(false);
   }, [user]);
 
-  useState(() => { fetchQuestions(); }, []);
+  useEffect(() => { fetchQuestions(); }, [fetchQuestions]);
 
-  const handleOpen = () => {
-    setForm({ subject: 'mathematics', topic: '', difficulty: 'easy', question: '', optA: '', optB: '', optC: '', optD: '', correctIndex: null });
-    setShowAdd(true);
-  };
-
-  const handleSubmit = async () => {
-    const opts = [form.optA, form.optB, form.optC, form.optD];
-    if (!form.topic.trim())    { alert('Please enter a topic.'); return; }
-    if (!form.question.trim()) { alert('Please enter the question.'); return; }
-    if (opts.some(o => !o.trim())) { alert('Please fill in all 4 options.'); return; }
-    if (form.correctIndex === null) { alert('Please select the correct answer.'); return; }
-
-    // Save correct_answer as the ACTUAL TEXT of the correct option
-    const correctAnswerText = opts[form.correctIndex];
-
+  const handleAdd = async () => {
+    if (!form.topic.trim() || !form.question.trim() || !form.optA || !form.optB || !form.optC || !form.optD) {
+      showToast('Please fill in all fields.', 'error'); return;
+    }
     setSaving(true);
     try {
       const { error } = await supabase.from('questions').insert({
-        tutor_id:       user.id,
-        subject:        form.subject,
-        topic:          form.topic,
-        difficulty:     form.difficulty,
-        question_text:  form.question,
-        options:        opts,          // stored as array ["optA text", "optB text", ...]
-        correct_answer: correctAnswerText, // stored as the actual text, NOT "A" or "B"
-        status:         'pending',
+        tutor_id: user.id,
+        level:    form.level,
+        subject:  form.subject,
+        topic:    form.topic,
+        question_text: form.question,
+        options:  [form.optA, form.optB, form.optC, form.optD],
+        correct_answer: form.correct,
+        status:   'pending',
       });
-      if (error) throw error;
+      if (error) { showToast(error.message, 'error'); return; }
+      showToast('Question submitted for admin review!');
       setShowAdd(false);
-      await fetchQuestions();
-    } catch (e) {
-      alert('Failed to submit: ' + e.message);
-    } finally {
-      setSaving(false);
-    }
+      setForm({ level:'primary', subject:'mathematics', topic:'', question:'', optA:'', optB:'', optC:'', optD:'', correct:'A' });
+      fetchQuestions();
+    } finally { setSaving(false); }
   };
 
-  const opts = [form.optA, form.optB, form.optC, form.optD];
-  const letters = ['A', 'B', 'C', 'D'];
+  const handleDelete = async (id) => {
+    if (!window.confirm('Delete this question?')) return;
+    setDeleting(id);
+    await supabase.from('questions').delete().eq('id', id);
+    showToast('Question deleted.');
+    setDeleting(null);
+    fetchQuestions();
+  };
 
-  if (loading) return <Spinner dark size={32} />;
+  const filtered = questions.filter(q => {
+    if (filterLevel !== 'all' && q.level !== filterLevel) return false;
+    if (filterSubj  !== 'all' && q.subject !== filterSubj) return false;
+    return true;
+  });
+
+  const counts = {
+    primary:      questions.filter(q => q.level === 'primary').length,
+    intermediate: questions.filter(q => q.level === 'intermediate').length,
+  };
 
   return (
     <div className="fade-in">
+      <Toast msg={toast?.msg} type={toast?.type} onClose={() => setToast(null)} />
+
       <div className="flex items-center justify-between mb-24">
         <div>
-          <h2 className="font-jakarta font-extrabold" style={{ fontSize: 22 }}>Question Bank</h2>
+          <h2 className="font-jakarta font-extrabold" style={{ fontSize:22 }}>Question Bank</h2>
           <p className="text-sm text-muted mt-4">Contribute questions used in student pre-assessments.</p>
         </div>
-        <button className="btn btn-primary" onClick={handleOpen}>
+        <button className="btn btn-primary" onClick={() => setShowAdd(true)}>
           <Icon name="plus" size={14} /> Add Question
         </button>
       </div>
 
-      <div className="card">
-        {questions.length === 0 ? (
-          <EmptyState icon="📋" title="No questions yet" description="Add your first question to the bank." />
-        ) : (
+      {/* Level summary cards */}
+      <div className="grid-2 mb-20">
+        {LEVELS.map(lvl => (
+          <div key={lvl.value} style={{ background:lvl.bg, border:`2px solid ${lvl.color}30`, borderRadius:14, padding:20, display:'flex', alignItems:'center', gap:16 }}>
+            <span style={{ fontSize:36 }}>{lvl.icon}</span>
+            <div style={{ flex:1 }}>
+              <div className="font-jakarta font-bold" style={{ fontSize:15, color:lvl.color }}>{lvl.label}</div>
+              <div style={{ fontSize:12, color:lvl.color, opacity:0.8, marginTop:2 }}>{lvl.grades}</div>
+              <div style={{ fontSize:11, color:lvl.color, opacity:0.6, marginTop:2 }}>{lvl.desc}</div>
+            </div>
+            <div style={{ textAlign:'right' }}>
+              <div style={{ fontSize:32, fontWeight:900, color:lvl.color }}>{counts[lvl.value]}</div>
+              <div style={{ fontSize:11, color:lvl.color, opacity:0.7 }}>question{counts[lvl.value] !== 1 ? 's' : ''}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div className="card p-16 mb-20">
+        <div className="flex gap-8" style={{ flexWrap:'wrap' }}>
+          <div className="flex gap-6">
+            {['all', 'primary', 'intermediate'].map(f => (
+              <button key={f} onClick={() => setFilterLevel(f)} className="btn btn-sm"
+                style={{ background:filterLevel===f?tokens.primary:'#fff', color:filterLevel===f?'#fff':tokens.mid, border:`1px solid ${filterLevel===f?tokens.primary:tokens.border}`, textTransform:'capitalize' }}>
+                {f === 'all' ? 'All Levels' : LEVELS.find(l=>l.value===f)?.label}
+              </button>
+            ))}
+          </div>
+          <div style={{ width:1, background:tokens.border }} />
+          <div className="flex gap-6">
+            {['all', ...SUBJECTS].map(f => (
+              <button key={f} onClick={() => setFilterSubj(f)} className="btn btn-sm"
+                style={{ background:filterSubj===f?tokens.primary:'#fff', color:filterSubj===f?'#fff':tokens.mid, border:`1px solid ${filterSubj===f?tokens.primary:tokens.border}`, textTransform:'capitalize' }}>
+                {f === 'all' ? 'All Subjects' : f}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Table */}
+      {loading ? <Spinner dark size={28} /> : filtered.length === 0 ? (
+        <div className="card">
+          <EmptyState icon="📋" title="No questions yet" description="Add your first question to the bank. Questions are reviewed by admin before going live." />
+        </div>
+      ) : (
+        <div className="card">
           <table className="table">
             <thead>
               <tr>
                 <th>Question</th>
+                <th>Level</th>
                 <th>Subject</th>
                 <th>Topic</th>
-                <th>Difficulty</th>
-                <th>Correct Answer</th>
                 <th>Status</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {questions.map(q => (
-                <tr key={q.id}>
-                  <td style={{ maxWidth: 280, fontSize: 13 }} className="truncate">{q.question_text}</td>
-                  <td><Badge variant="info" style={{ textTransform: 'capitalize' }}>{q.subject}</Badge></td>
-                  <td style={{ fontSize: 13 }}>{q.topic}</td>
-                  <td><Badge variant={DIFF_MAP[q.difficulty]}>{q.difficulty}</Badge></td>
-                  <td style={{ fontSize: 13, fontWeight: 600, color: tokens.success }}>{q.correct_answer}</td>
-                  <td><Badge variant={q.status === 'approved' ? 'success' : q.status === 'rejected' ? 'danger' : 'warning'}>{q.status}</Badge></td>
-                </tr>
-              ))}
+              {filtered.map(q => {
+                const lvl = LEVELS.find(l => l.value === q.level);
+                return (
+                  <tr key={q.id}>
+                    <td style={{ maxWidth:280, fontSize:13 }}>
+                      <div style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{q.question}</div>
+                    </td>
+                    <td>
+                      <span style={{ fontSize:11, fontWeight:700, padding:'3px 10px', borderRadius:20, background:lvl?.bg, color:lvl?.color }}>
+                        {lvl?.icon} {lvl?.label}
+                      </span>
+                    </td>
+                    <td><Badge variant="info" style={{ textTransform:'capitalize' }}>{q.subject}</Badge></td>
+                    <td style={{ fontSize:13 }}>{q.topic}</td>
+                    <td>
+                      <Badge variant={q.status === 'approved' ? 'success' : q.status === 'rejected' ? 'danger' : 'warning'}>
+                        {q.status}
+                      </Badge>
+                    </td>
+                    <td>
+                      <button className="btn btn-danger btn-sm" disabled={deleting === q.id} onClick={() => handleDelete(q.id)}>
+                        <Icon name="x" size={11} /> {deleting === q.id ? '...' : 'Delete'}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-        )}
-      </div>
-
-      {/* Add Question Modal */}
-      {showAdd && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 1000,
-          background: 'rgba(0,0,0,.5)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
-        }}>
-          <div style={{
-            background: '#fff', borderRadius: 20,
-            width: '100%', maxWidth: 560,
-            maxHeight: '90vh', overflowY: 'auto',
-            padding: 36,
-          }}>
-            <div className="flex items-center justify-between mb-24">
-              <h3 className="font-jakarta font-bold" style={{ fontSize: 18 }}>Add Question</h3>
-              <button onClick={() => setShowAdd(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: tokens.muted }}>×</button>
-            </div>
-
-            {/* Subject + Difficulty */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-              <div>
-                <label className="form-label">Subject</label>
-                <select className="select" value={form.subject} onChange={e => set('subject', e.target.value)}>
-                  <option value="mathematics">Mathematics</option>
-                  <option value="english">English</option>
-                </select>
-              </div>
-              <div>
-                <label className="form-label">Difficulty</label>
-                <select className="select" value={form.difficulty} onChange={e => set('difficulty', e.target.value)}>
-                  <option value="easy">Easy</option>
-                  <option value="medium">Medium</option>
-                  <option value="hard">Hard</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Topic */}
-            <div style={{ marginBottom: 16 }}>
-              <label className="form-label">Topic</label>
-              <input className="input" placeholder="e.g. Addition, Grammar, Fractions"
-                value={form.topic} onChange={e => set('topic', e.target.value)} />
-            </div>
-
-            {/* Question */}
-            <div style={{ marginBottom: 16 }}>
-              <label className="form-label">Question</label>
-              <textarea className="textarea" placeholder="Type the question here..."
-                value={form.question} onChange={e => set('question', e.target.value)}
-                style={{ minHeight: 80 }} />
-            </div>
-
-            {/* Options */}
-            <div style={{ marginBottom: 8 }}>
-              <label className="form-label">Options</label>
-              <p className="text-xs text-muted mb-10">Fill in all 4 options, then click the correct one to mark it as the answer.</p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {letters.map((letter, idx) => {
-                  const isCorrect = form.correctIndex === idx;
-                  const optVal    = opts[idx];
-                  return (
-                    <div key={letter} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      {/* Letter badge — click to mark as correct */}
-                      <button
-                        type="button"
-                        onClick={() => optVal.trim() && set('correctIndex', idx)}
-                        title={optVal.trim() ? `Mark ${letter} as correct answer` : 'Fill in the option first'}
-                        style={{
-                          width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
-                          border: `2px solid ${isCorrect ? tokens.success : tokens.border}`,
-                          background: isCorrect ? tokens.success : '#F9FAFB',
-                          color: isCorrect ? '#fff' : tokens.mid,
-                          fontWeight: 800, fontSize: 14, cursor: 'pointer',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          transition: 'all 0.15s',
-                        }}
-                      >
-                        {isCorrect ? '✓' : letter}
-                      </button>
-
-                      {/* Option input */}
-                      <input
-                        className="input"
-                        placeholder={`Option ${letter}`}
-                        value={opts[idx]}
-                        onChange={e => {
-                          set(['optA','optB','optC','optD'][idx], e.target.value);
-                          // If this option is currently selected as correct but cleared, deselect
-                          if (!e.target.value.trim() && form.correctIndex === idx) {
-                            set('correctIndex', null);
-                          }
-                        }}
-                        style={{
-                          flex: 1,
-                          border: `1.5px solid ${isCorrect ? tokens.success : tokens.border}`,
-                          background: isCorrect ? '#F0FDF4' : '#fff',
-                        }}
-                      />
-
-                      {isCorrect && (
-                        <span style={{ fontSize: 11, fontWeight: 700, color: tokens.success, whiteSpace: 'nowrap' }}>
-                          ✓ Correct
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Correct answer indicator */}
-            {form.correctIndex !== null && (
-              <div style={{
-                marginTop: 12, padding: '10px 14px', borderRadius: 10,
-                background: '#D1FAE5', border: '1px solid #6EE7B7',
-                fontSize: 13, color: '#065F46', fontWeight: 600,
-              }}>
-                ✅ Correct answer: <strong>{opts[form.correctIndex]}</strong> (Option {letters[form.correctIndex]})
-              </div>
-            )}
-
-            {/* Buttons */}
-            <div className="flex gap-10 mt-24">
-              <button className="btn btn-ghost btn-full" onClick={() => setShowAdd(false)} disabled={saving}>
-                Cancel
-              </button>
-              <button className="btn btn-primary btn-full" onClick={handleSubmit} disabled={saving}>
-                {saving ? <Spinner /> : <><Icon name="check" size={13} /> Submit Question</>}
-              </button>
-            </div>
+          <div style={{ padding:'12px 24px', borderTop:`1px solid ${tokens.border}` }}>
+            <p className="text-xs text-muted">Showing {filtered.length} of {questions.length} questions</p>
           </div>
         </div>
       )}
+
+      {/* Add Question Modal */}
+      <Modal open={showAdd} onClose={() => setShowAdd(false)} title="📋 Add Question to Bank"
+        footer={<>
+          <button className="btn btn-ghost" onClick={() => setShowAdd(false)}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleAdd} disabled={saving}>
+            {saving ? 'Submitting...' : 'Submit for Review'}
+          </button>
+        </>}>
+
+        {/* Level selector */}
+        <FormGroup label="Difficulty Level" hint="Select the level this question is appropriate for.">
+          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            {LEVELS.map(lvl => (
+              <button key={lvl.value} type="button" onClick={() => set('level', lvl.value)}
+                style={{ padding:'14px 16px', borderRadius:12, cursor:'pointer', border:`2px solid ${form.level===lvl.value?lvl.color:tokens.border}`, background:form.level===lvl.value?lvl.bg:'#FAFAFA', textAlign:'left', transition:'all 0.15s' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <span style={{ fontSize:24 }}>{lvl.icon}</span>
+                  <div>
+                    <div style={{ fontWeight:700, fontSize:14, color:form.level===lvl.value?lvl.color:tokens.dark }}>
+                      {lvl.label} <span style={{ fontSize:12, fontWeight:400 }}>({lvl.grades})</span>
+                    </div>
+                    <div style={{ fontSize:11, color:tokens.muted, marginTop:2 }}>{lvl.desc}</div>
+                  </div>
+                  {form.level===lvl.value && (
+                    <span style={{ marginLeft:'auto', fontSize:16, color:lvl.color }}>✓</span>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+        </FormGroup>
+
+        <div className="grid-2">
+          <FormGroup label="Subject">
+            <select className="select" value={form.subject} onChange={e => set('subject', e.target.value)}>
+              {SUBJECTS.map(s => <option key={s} value={s} style={{ textTransform:'capitalize' }}>{s.charAt(0).toUpperCase()+s.slice(1)}</option>)}
+            </select>
+          </FormGroup>
+          <FormGroup label="Topic">
+            <input className="input" placeholder="e.g. Fractions, Grammar" value={form.topic} onChange={e => set('topic', e.target.value)} />
+          </FormGroup>
+        </div>
+
+        <FormGroup label="Question">
+          <textarea className="textarea" placeholder="Write the question here..." value={form.question} onChange={e => set('question', e.target.value)} style={{ minHeight:90 }} />
+        </FormGroup>
+
+        {['A','B','C','D'].map(opt => (
+          <FormGroup key={opt} label={`Option ${opt}${form.correct===opt?' ✓ (Correct)':''}`}>
+            <div className="flex gap-8">
+              <input className="input" style={{ flex:1, borderColor:form.correct===opt?tokens.success:undefined }}
+                placeholder={`Option ${opt}`}
+                value={form[`opt${opt}`]}
+                onChange={e => set(`opt${opt}`, e.target.value)}
+              />
+              {form.correct !== opt && (
+                <button type="button" onClick={() => set('correct', opt)}
+                  style={{ padding:'8px 12px', borderRadius:8, background:'#F9FAFB', border:`1px solid ${tokens.border}`, cursor:'pointer', fontSize:12, color:tokens.muted, whiteSpace:'nowrap' }}>
+                  Set Correct
+                </button>
+              )}
+            </div>
+          </FormGroup>
+        ))}
+
+        <div style={{ background:'#FEF9C3', border:'1px solid #FDE68A', borderRadius:10, padding:'10px 14px', fontSize:12, color:'#92400E' }}>
+          ⏳ Questions are reviewed by the admin team before becoming active in pre-assessments.
+        </div>
+      </Modal>
     </div>
   );
 }

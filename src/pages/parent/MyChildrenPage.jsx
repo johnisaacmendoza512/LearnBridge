@@ -111,44 +111,49 @@ export default function MyChildrenPage() {
     } finally { setSavingEdit(false); }
   };
 
-  // Start assessment — pick level then fetch questions
-  const startAssessment = (student) => {
+  // Determine level from grade automatically
+  const getLevelFromGrade = (grade) => {
+    const g = parseInt(grade);
+    if (g >= 1 && g <= 3) return LEVELS.find(l => l.value === 'primary');
+    return LEVELS.find(l => l.value === 'intermediate');
+  };
+
+  // Start assessment — auto-detect level from grade, go straight to quiz
+  const startAssessment = async (student) => {
     setAssessStudent(student);
-    setAssessStep('level');
-    setSelectedLevel(null);
-    setQuestions([]);
     setAnswers({});
     setCurrentQ(0);
     setQuizResult(null);
     setAnswerError(false);
-  };
 
-  const handleLevelSelect = async (level) => {
+    const level = getLevelFromGrade(student.grade_level);
     setSelectedLevel(level);
     setLoadingAssess(true);
+    setAssessStep('quiz');
+
     try {
       const { data, error } = await supabase
         .from('questions')
         .select('*')
         .eq('level', level.value)
         .eq('status', 'approved')
-        .limit(QUESTIONS_PER_ASSESSMENT);
+        .limit(50); // fetch more then shuffle
 
       if (error) throw error;
       if (!data || data.length === 0) {
-        showToast('No approved questions available for this level yet. Please try again later.', 'error');
-        setSelectedLevel(null);
+        showToast(`No approved questions available for ${level.label} yet. Please ask a tutor to add questions to the Question Bank.`, 'error');
+        setAssessStudent(null);
+        setAssessStep('level');
         setLoadingAssess(false);
         return;
       }
 
-      // Shuffle questions
+      // Shuffle and limit to QUESTIONS_PER_ASSESSMENT
       const shuffled = [...data].sort(() => Math.random() - 0.5).slice(0, QUESTIONS_PER_ASSESSMENT);
       setQuestions(shuffled);
-      setAssessStep('quiz');
     } catch (e) {
       showToast(e.message, 'error');
-      setSelectedLevel(null);
+      setAssessStudent(null);
     } finally { setLoadingAssess(false); }
   };
 
@@ -327,8 +332,8 @@ export default function MyChildrenPage() {
         open={!!assessStudent}
         onClose={() => { if (assessStep !== 'quiz') setAssessStudent(null); }}
         title={
-          assessStep === 'level'  ? `📋 Pre-Assessment — ${assessStudent?.name}` :
-          assessStep === 'quiz'   ? `${selectedLevel?.icon} ${selectedLevel?.label} Assessment` :
+          loadingAssess ? `📋 Loading Assessment...` :
+          assessStep === 'quiz'   ? `${selectedLevel?.icon} ${selectedLevel?.label} — Grade ${assessStudent?.grade_level}` :
           '🎉 Assessment Complete!'
         }
         footer={
@@ -339,39 +344,18 @@ export default function MyChildrenPage() {
           ) : null
         }
       >
-        {/* LEVEL SELECTION */}
-        {assessStep === 'level' && (
-          <div>
-            <p className="text-sm text-muted mb-20" style={{ lineHeight:1.7 }}>
-              Select the appropriate difficulty level for <strong>{assessStudent?.name}</strong> (Grade {assessStudent?.grade_level}).
-              The pre-assessment will include {QUESTIONS_PER_ASSESSMENT} questions based on the selected level.
-            </p>
-            <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-              {LEVELS.map(lvl => (
-                <button key={lvl.value} type="button"
-                  onClick={() => handleLevelSelect(lvl)}
-                  disabled={loadingAssess}
-                  style={{ padding:'18px 20px', borderRadius:14, cursor:'pointer', border:`2px solid ${lvl.border}`, background:lvl.bg, textAlign:'left', transition:'all 0.15s', opacity:loadingAssess?0.7:1 }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:14 }}>
-                    <span style={{ fontSize:36 }}>{lvl.icon}</span>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontWeight:800, fontSize:16, color:lvl.color }}>{lvl.label}</div>
-                      <div style={{ fontSize:13, color:lvl.color, opacity:0.8, marginTop:2 }}>{lvl.grades}</div>
-                      <div style={{ fontSize:12, color:lvl.color, opacity:0.6, marginTop:4, lineHeight:1.5 }}>{lvl.desc}</div>
-                    </div>
-                    {loadingAssess && selectedLevel?.value === lvl.value
-                      ? <Spinner size={20} />
-                      : <Icon name="arrowRight" size={18} color={lvl.color} />
-                    }
-                  </div>
-                </button>
-              ))}
-            </div>
+
+
+        {/* Loading */}
+        {assessStep === 'quiz' && loadingAssess && (
+          <div style={{ textAlign:'center', padding:'40px 0' }}>
+            <Spinner dark size={32} />
+            <p className="text-sm text-muted mt-12">Loading questions for {selectedLevel?.label}...</p>
           </div>
         )}
 
         {/* QUIZ */}
-        {assessStep === 'quiz' && questions[currentQ] && (
+        {assessStep === 'quiz' && !loadingAssess && questions[currentQ] && (
           <div>
             {/* Progress */}
             <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>

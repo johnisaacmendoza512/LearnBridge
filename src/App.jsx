@@ -5,9 +5,11 @@ import AppLayout from './components/layout/AppLayout';
 import Spinner from './components/ui/Spinner';
 
 // Public
-import LandingPage  from './pages/LandingPage';
-import LoginPage    from './pages/auth/LoginPage';
-import RegisterPage from './pages/auth/RegisterPage';
+import LandingPage        from './pages/LandingPage';
+import LoginPage          from './pages/auth/LoginPage';
+import RegisterPage       from './pages/auth/RegisterPage';
+import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
+import ResetPasswordPage  from './pages/auth/ResetPasswordPage';
 
 // Tutor pending approval
 import PendingApprovalPage from './pages/tutor/PendingApprovalPage';
@@ -30,6 +32,7 @@ import SessionsPage      from './pages/tutor/SessionsPage';
 import QuestionBankPage  from './pages/tutor/QuestionBankPage';
 import WalletPage        from './pages/tutor/WalletPage';
 import TutorMessagesPage from './pages/tutor/TutorMessagesPage';
+import TutorCalendarPage from './pages/tutor/TutorCalendarPage';
 
 // Admin
 import AdminDashboard        from './pages/admin/AdminDashboard';
@@ -86,9 +89,11 @@ function AppRoutes() {
   return (
     <Routes>
       {/* ── Public ── */}
-      <Route path="/"         element={<LandingPage />}  />
-      <Route path="/login"    element={<LoginPage />}    />
-      <Route path="/register" element={<RegisterPage />} />
+      <Route path="/"                element={<LandingPage />}        />
+      <Route path="/login"           element={<LoginPage />}          />
+      <Route path="/register"        element={<RegisterPage />}       />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password"  element={<ResetPasswordPage />}  />
 
       {/* ── Pending approval ── */}
       <Route path="/pending-approval" element={<PendingApprovalPage />} />
@@ -107,9 +112,10 @@ function AppRoutes() {
 
           {/* Tutor-only */}
           <Route element={<ProtectedRoute allowedRoles={['tutor']} />}>
-            <Route path="/my-profile"   element={<TutorProfilePage />} />
+            <Route path="/my-profile"    element={<TutorProfilePage />} />
             <Route path="/certification" element={<CertificationPage />} />
             <Route path="/wallet"        element={<WalletPage />}        />
+            <Route path="/calendar" element={<TutorCalendarPage />} />
           </Route>
 
           {/* Admin-only */}
@@ -120,11 +126,11 @@ function AppRoutes() {
           </Route>
 
           {/* Shared routes */}
-          <Route path="/my-profile"    element={<RoleProfile />}      />
-          <Route path="/bookings" element={<RoleBookings />} />
-          <Route path="/sessions"      element={<RoleSessions />}      />
-          <Route path="/question-bank" element={<RoleQuestionBank />}  />
-          <Route path="/messages"      element={<RoleMessages />}      />
+          <Route path="/my-profile"    element={<RoleProfile />}     />
+          <Route path="/bookings"      element={<RoleBookings />}    />
+          <Route path="/sessions"      element={<RoleSessions />}    />
+          <Route path="/question-bank" element={<RoleQuestionBank />} />
+          <Route path="/messages"      element={<RoleMessages />}    />
 
           {/* Legacy redirect */}
           <Route path="/progress" element={<Navigate to="/sessions" replace />} />

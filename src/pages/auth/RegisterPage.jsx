@@ -235,39 +235,23 @@ export default function RegisterPage() {
     setLoading(true);
     setError('');
     try {
-      await signUp({
+      const signUpData = await signUp({
         email:    form.email.trim(),
         password: form.password,
         fullName: form.fullName.trim(),
         role,
       });
 
-      // Wait for session AND profiles row
-      let userId        = null;
-      let profileExists = false;
-      for (let i = 0; i < 10; i++) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user?.id) {
-          userId = user.id;
-          const { data: profileData } = await supabase
-            .from('profiles')
-            .select('id')
-            .eq('id', userId)
-            .maybeSingle();
-          if (profileData?.id) { profileExists = true; break; }
-        }
-      }
-      if (!userId) throw new Error('Session not found. Please try again.');
+      // Get user ID directly from signUp result
+      const userId = signUpData?.user?.id;
+      if (!userId) throw new Error('Registration failed. Please try again.');
 
       // Update profile fields
-      if (profileExists) {
-        await supabase.from('profiles').update({
-          location: form.location || null,
-          gender:   form.gender   || null,
-          bio:      form.bio      || null,
-        }).eq('id', userId);
-      }
+      await supabase.from('profiles').update({
+        location: form.location || null,
+        gender:   form.gender   || null,
+        bio:      form.bio      || null,
+      }).eq('id', userId);
 
       // Upload documents
       const urls = {};
@@ -321,7 +305,7 @@ export default function RegisterPage() {
     try {
       await signUp({ email: form.email.trim(), password: form.password, fullName: form.fullName.trim(), role });
       await signOut();
-      navigate('/login', { state: { justRegistered: true } });
+      navigate('/login', { state: { message: '📧 Account created! Please check your email and click the confirmation link before signing in.' } });
     } catch (err) {
       setError(err.message || 'Registration failed.');
     } finally {

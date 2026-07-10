@@ -24,6 +24,7 @@ const navItems = {
     { to: '/question-bank', label: 'Question Bank',icon: 'clipboard' },
     { to: '/wallet',        label: 'Wallet',       icon: 'wallet'    },
     { to: '/messages',      label: 'Messages',     icon: 'message',  badge: true },
+    { to: '/calendar', label: 'Calendar', icon: 'calendar' },
   ],
   admin: [
     { to: '/dashboard',          label: 'Dashboard',    icon: 'home'      },

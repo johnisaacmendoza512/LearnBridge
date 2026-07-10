@@ -43,7 +43,9 @@ export default function TutorBookingsPage() {
   const { bookings, loading, updateBookingStatus, markComplete, saveSchedule } = useBookings();
 
   const [toast,       setToast]       = useState(null);
-  const [selected,    setSelected]    = useState(null);
+  const [selected,       setSelected]       = useState(null);
+  const [modalTab,       setModalTab]       = useState('booking'); // 'booking' | 'tutee'
+  const [studentProfile, setStudentProfile] = useState(null);
   const [schedForm,   setSchedForm]   = useState({ day1:'', time1:'', day2:'', time2:'' });
   const [showSched,   setShowSched]   = useState(false);
   const [savingSched, setSavingSched] = useState(false);
@@ -54,15 +56,27 @@ export default function TutorBookingsPage() {
     setTimeout(() => setToast(null), 3500);
   };
 
-  const openBooking = (b) => {
+  const openBooking = async (b) => {
     setSelected(b);
     setShowSched(false);
+    setModalTab('booking');
+    setStudentProfile(null);
     setSchedForm({
       day1:  b.proposed_day_1  || b.confirmed_day_1  || '',
       time1: b.proposed_time_1 || b.confirmed_time_1 || '',
       day2:  b.proposed_day_2  || b.confirmed_day_2  || '',
       time2: b.proposed_time_2 || b.confirmed_time_2 || '',
     });
+    // Fetch full student profile including pre-assessment
+    if (b.student_id) {
+      const { supabase } = await import('../../lib/supabase');
+      const { data } = await supabase
+        .from('students')
+        .select('*')
+        .eq('id', b.student_id)
+        .single();
+      setStudentProfile(data || null);
+    }
   };
 
   const handleAccept = async () => {
@@ -230,142 +244,152 @@ export default function TutorBookingsPage() {
         onClose={() => { setSelected(null); setShowSched(false); }}
         title={showSched ? '📅 Confirm Schedule' : 'Booking Details'}
         footer={
-          showSched ? (
-            <>
-              <button className="btn btn-ghost" onClick={() => setShowSched(false)}>← Back</button>
-              <button className="btn btn-primary" onClick={handleConfirmSchedule} disabled={savingSched}>
-                {savingSched ? 'Saving...' : '✓ Confirm Schedule'}
+          <div className="flex gap-10" style={{ width:'100%', flexWrap:'wrap' }}>
+            <button className="btn btn-ghost" onClick={() => setSelected(null)}>Close</button>
+            {selected?.status === 'pending' && (
+              <div style={{background:'#FEF9C3',border:'1px solid #FDE68A',borderRadius:10,padding:'10px 14px',fontSize:13,color:'#92400E',flex:1}}>
+                ⏳ Go to <strong>Calendar</strong> to accept or reject this booking request.
+              </div>
+            )}
+            {selected?.status === 'confirmed' && (
+              <button className="btn btn-success" onClick={handleMarkComplete} disabled={saving}>
+                {saving ? '...' : '🎓 Mark Complete'}
               </button>
-            </>
-          ) : (
-            <div className="flex gap-10" style={{ width:'100%', flexWrap:'wrap' }}>
-              <button className="btn btn-ghost" onClick={() => setSelected(null)}>Close</button>
-
-              {/* PENDING — Accept or Reject */}
-              {selected?.status === 'pending' && (
-                <>
-                  <button className="btn btn-danger" onClick={handleReject} disabled={saving}>
-                    {saving ? '...' : '✗ Reject'}
-                  </button>
-                  <button className="btn btn-primary" onClick={handleAccept} disabled={saving}>
-                    {saving ? '...' : '✓ Accept Booking'}
-                  </button>
-                </>
-              )}
-
-              {/* CONFIRMED — Confirm schedule (if parent proposed) or Mark complete */}
-              {selected?.status === 'confirmed' && (
-                <>
-                  {(selected.proposed_day_1 || true) && (
-                    <button className="btn btn-sm" style={{ background:'#EFF6FF', color:tokens.primary, border:`1px solid ${tokens.primary}30` }} onClick={() => setShowSched(true)}>
-                      <Icon name="calendar" size={12} color={tokens.primary} />
-                      {selected.schedule_status === 'confirmed' ? ' Update Schedule' : ' Confirm Schedule'}
-                    </button>
-                  )}
-                  <button className="btn btn-success" onClick={handleMarkComplete} disabled={saving}>
-                    {saving ? '...' : '🎓 Mark Complete'}
-                  </button>
-                </>
-              )}
-            </div>
-          )
+            )}
+          </div>
         }
       >
         {selected && (
           <div>
-            {/* Info grid */}
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:20 }}>
+            {/* Modal tabs */}
+            <div className="flex gap-0 mb-16" style={{borderBottom:`2px solid ${tokens.border}`}}>
               {[
-                ['Child',   selected.student?.name    || '—'],
-                ['Parent',  selected.parent?.full_name || '—'],
-                ['Subject', selected.subject           || '—'],
-                ['Mode',    selected.session_mode      || '—'],
-                ['Payment', (selected.payment_method  || '').replace('_',' ')],
-                ['Total',   `₱${Number(selected.total_amount||0).toLocaleString()}`],
-              ].map(([k,v]) => (
-                <div key={k} style={{ background:'#F9FAFB', borderRadius:8, padding:12 }}>
-                  <div className="text-xs text-muted uppercase font-bold mb-4" style={{ letterSpacing:'0.5px' }}>{k}</div>
-                  <div className="font-semibold" style={{ fontSize:13, textTransform:'capitalize' }}>{v}</div>
-                </div>
+                {key:'booking', label:'📋 Booking Details'},
+                {key:'tutee',   label:'👤 Tutee Profile'},
+              ].map(t=>(
+                <button key={t.key} onClick={()=>setModalTab(t.key)}
+                  style={{padding:'8px 20px',border:'none',borderBottom:`3px solid ${modalTab===t.key?tokens.primary:'transparent'}`,background:'none',cursor:'pointer',fontWeight:700,fontSize:13,color:modalTab===t.key?tokens.primary:tokens.muted,marginBottom:-2,transition:'all 0.15s'}}>
+                  {t.label}
+                </button>
               ))}
             </div>
 
-            {/* Schedule section — view mode */}
-            {!showSched && (
-              <>
-                {/* Parent's proposed */}
-                {selected.proposed_day_1 && (
-                  <div style={{ background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:12, padding:16, marginBottom:12 }}>
-                    <div className="font-jakarta font-bold mb-8" style={{ fontSize:14, color:'#1D4ED8' }}>📋 Parent's Proposed Schedule</div>
-                    <div style={{ fontSize:13, fontWeight:600, color:'#1D4ED8', marginBottom:4 }}>
-                      Day 1: {selected.proposed_day_1} at {fmtTime(selected.proposed_time_1)}
+            {/* TUTEE PROFILE TAB */}
+            {modalTab==='tutee' && (
+              <div>
+                {!studentProfile ? (
+                  <div style={{textAlign:'center',padding:'32px 0',color:tokens.muted}}>
+                    <div style={{fontSize:40,marginBottom:12}}>👤</div>
+                    <div style={{fontSize:14}}>Loading student profile...</div>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{display:'flex',alignItems:'center',gap:16,padding:'16px 20px',background:tokens.primaryLight,borderRadius:12,marginBottom:16}}>
+                      <div style={{width:56,height:56,borderRadius:'50%',background:tokens.primary,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                        <span style={{color:'#fff',fontWeight:800,fontSize:22}}>{studentProfile.name?.charAt(0)}</span>
+                      </div>
+                      <div>
+                        <div className="font-jakarta font-extrabold" style={{fontSize:18}}>{studentProfile.name}</div>
+                        <div style={{fontSize:13,color:tokens.mid,marginTop:2}}>Grade {studentProfile.grade_level} · {selected.subject}</div>
+                      </div>
                     </div>
-                    {selected.proposed_day_2 && (
-                      <div style={{ fontSize:13, fontWeight:600, color:'#1D4ED8' }}>
-                        Day 2: {selected.proposed_day_2} at {fmtTime(selected.proposed_time_2)}
+                    {studentProfile.assessment_results ? (
+                      <div style={{marginBottom:16}}>
+                        <div className="text-xs text-muted uppercase font-bold mb-10" style={{letterSpacing:'0.5px'}}>Pre-Assessment Result</div>
+                        <div style={{background:studentProfile.assessment_level==='intermediate'?'#DBEAFE':'#D1FAE5',border:`1.5px solid ${studentProfile.assessment_level==='intermediate'?'#2563EB':'#059669'}30`,borderRadius:12,padding:16,marginBottom:12}}>
+                          <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
+                            <span style={{fontSize:32}}>{studentProfile.assessment_level==='intermediate'?'🚀':'🌱'}</span>
+                            <div>
+                              <div style={{fontWeight:800,fontSize:15,color:studentProfile.assessment_level==='intermediate'?'#2563EB':'#059669'}}>
+                                {studentProfile.assessment_level==='intermediate'?'Intermediate Level (Grade 4–6)':'Primary Level (Grade 1–3)'}
+                              </div>
+                              <div style={{fontSize:12,color:studentProfile.assessment_level==='intermediate'?'#2563EB':'#059669',opacity:0.8,marginTop:2}}>
+                                Score: {studentProfile.assessment_score}% · {studentProfile.assessment_results.passed?'✅ Passed':'⚠️ Needs improvement'}
+                              </div>
+                            </div>
+                            <div style={{marginLeft:'auto',textAlign:'center'}}>
+                              <div style={{fontSize:32,fontWeight:900,color:studentProfile.assessment_level==='intermediate'?'#2563EB':'#059669'}}>{studentProfile.assessment_score}%</div>
+                            </div>
+                          </div>
+                          <div style={{height:8,background:'rgba(0,0,0,0.1)',borderRadius:4,overflow:'hidden'}}>
+                            <div style={{height:'100%',borderRadius:4,width:`${studentProfile.assessment_score}%`,background:studentProfile.assessment_level==='intermediate'?'#2563EB':'#059669'}}/>
+                          </div>
+                        </div>
+                        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                          <div style={{background:'#D1FAE5',borderRadius:10,padding:12,textAlign:'center'}}>
+                            <div style={{fontSize:24,fontWeight:900,color:'#065F46'}}>{studentProfile.assessment_results.correct}</div>
+                            <div style={{fontSize:11,color:'#065F46'}}>Correct</div>
+                          </div>
+                          <div style={{background:'#FEE2E2',borderRadius:10,padding:12,textAlign:'center'}}>
+                            <div style={{fontSize:24,fontWeight:900,color:'#DC2626'}}>{studentProfile.assessment_results.total - studentProfile.assessment_results.correct}</div>
+                            <div style={{fontSize:11,color:'#DC2626'}}>Incorrect</div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{background:'#FEF9C3',border:'1px solid #FDE68A',borderRadius:12,padding:16,marginBottom:16,textAlign:'center'}}>
+                        <div style={{fontSize:32,marginBottom:8}}>📋</div>
+                        <div style={{fontSize:14,fontWeight:600,color:'#92400E'}}>No Pre-Assessment Yet</div>
+                        <p style={{fontSize:12,color:'#92400E',opacity:0.8,marginTop:4}}>The parent hasn't completed a pre-assessment for this student yet.</p>
                       </div>
                     )}
-                    {selected.status === 'confirmed' && selected.schedule_status !== 'confirmed' && (
-                      <p className="text-xs text-muted mt-8">Click "Confirm Schedule" to accept or adjust these times.</p>
-                    )}
-                  </div>
-                )}
-
-                {/* Confirmed schedule */}
-                {selected.schedule_status === 'confirmed' && selected.confirmed_day_1 && (
-                  <div style={{ background:'#D1FAE5', border:'1px solid #6EE7B7', borderRadius:12, padding:16 }}>
-                    <div className="font-jakarta font-bold mb-8" style={{ fontSize:14, color:'#065F46' }}>✅ Confirmed Schedule</div>
-                    <div style={{ fontSize:13, fontWeight:600, color:'#065F46', marginBottom:4 }}>
-                      Day 1: {selected.confirmed_day_1} at {fmtTime(selected.confirmed_time_1)}
-                    </div>
-                    {selected.confirmed_day_2 && (
-                      <div style={{ fontSize:13, fontWeight:600, color:'#065F46' }}>
-                        Day 2: {selected.confirmed_day_2} at {fmtTime(selected.confirmed_time_2)}
+                    {studentProfile.notes && (
+                      <div style={{marginBottom:16}}>
+                        <div className="text-xs text-muted uppercase font-bold mb-8" style={{letterSpacing:'0.5px'}}>Notes from Parent</div>
+                        <div style={{background:'#F9FAFB',border:`1px solid ${tokens.border}`,borderRadius:10,padding:14,fontSize:13,color:tokens.mid,lineHeight:1.7,fontStyle:'italic'}}>
+                          "{studentProfile.notes}"
+                        </div>
                       </div>
                     )}
+                    <div style={{background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:12,padding:14,fontSize:13,color:'#1D4ED8'}}>
+                      💡 <strong>Teaching tip:</strong> {
+                        studentProfile.assessment_level==='intermediate'
+                          ? 'Focus on critical thinking, problem-solving and junior high school prep.'
+                          : studentProfile.assessment_level==='primary'
+                            ? 'Focus on building strong foundations in reading, writing and basic mathematics.'
+                            : 'Ask the parent to complete the pre-assessment to better tailor your sessions.'
+                      }
+                    </div>
                   </div>
                 )}
-
-                {/* No schedule yet */}
-                {!selected.proposed_day_1 && selected.schedule_status !== 'confirmed' && selected.status === 'confirmed' && (
-                  <div style={{ background:'#F9FAFB', border:`1px dashed ${tokens.border}`, borderRadius:12, padding:20, textAlign:'center' }}>
-                    <div style={{ fontSize:28, marginBottom:8 }}>📅</div>
-                    <div className="text-sm text-muted">The parent hasn't proposed a schedule yet. You can set one using "Confirm Schedule".</div>
-                  </div>
-                )}
-              </>
+              </div>
             )}
 
-            {/* Schedule form — shown when showSched is true */}
-            {showSched && (
-              <div style={{ background:'#F9FAFB', border:`1px solid ${tokens.border}`, borderRadius:12, padding:16 }}>
-                <p className="text-xs text-muted mb-16">
-                  {selected.proposed_day_1
-                    ? 'The parent proposed the schedule below. Accept as-is or adjust the times.'
-                    : 'Set the confirmed session days and times for this booking.'}
-                </p>
-
-                <div style={{ marginBottom:16 }}>
-                  <div className="font-semibold mb-8" style={{ fontSize:13 }}>Session Day 1 <span style={{ color:'#DC2626' }}>*</span></div>
-                  <div className="grid-2">
-                    <select className="select" value={schedForm.day1} onChange={e => setSchedForm(f => ({ ...f, day1:e.target.value }))}>
-                      <option value="">Select day</option>
-                      {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
-                    </select>
-                    <input className="input" type="time" value={schedForm.time1} onChange={e => setSchedForm(f => ({ ...f, time1:e.target.value }))} />
-                  </div>
+            {/* BOOKING DETAILS TAB */}
+            {modalTab==='booking' && (
+              <div>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:20 }}>
+                  {[
+                    ['Child',   selected.student?.name    || '—'],
+                    ['Parent',  selected.parent?.full_name || '—'],
+                    ['Subject', selected.subject           || '—'],
+                    ['Mode',    selected.session_mode      || '—'],
+                    ['Payment', (selected.payment_method  || '').replace('_',' ')],
+                    ['Total',   `₱${Number(selected.total_amount||0).toLocaleString()}`],
+                  ].map(([k,v]) => (
+                    <div key={k} style={{ background:'#F9FAFB', borderRadius:8, padding:12 }}>
+                      <div className="text-xs text-muted uppercase font-bold mb-4" style={{ letterSpacing:'0.5px' }}>{k}</div>
+                      <div className="font-semibold" style={{ fontSize:13, textTransform:'capitalize' }}>{v}</div>
+                    </div>
+                  ))}
                 </div>
-
-                <div>
-                  <div className="font-semibold mb-8" style={{ fontSize:13 }}>Session Day 2 <span className="text-xs text-muted">(optional)</span></div>
-                  <div className="grid-2">
-                    <select className="select" value={schedForm.day2} onChange={e => setSchedForm(f => ({ ...f, day2:e.target.value }))}>
-                      <option value="">Select day</option>
-                      {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
-                    </select>
-                    <input className="input" type="time" value={schedForm.time2} onChange={e => setSchedForm(f => ({ ...f, time2:e.target.value }))} />
+                {/* Schedule summary — view only, managed via Calendar */}
+                {selected.scheduled_date ? (
+                  <div style={{background:'#D1FAE5',border:'1px solid #6EE7B7',borderRadius:12,padding:16}}>
+                    <div className="font-jakarta font-bold mb-8" style={{fontSize:14,color:'#065F46'}}>✅ Session Schedule</div>
+                    <div style={{fontSize:13,fontWeight:600,color:'#065F46'}}>
+                      📅 {new Date(selected.scheduled_date+'T00:00:00').toLocaleDateString('en-PH',{weekday:'long',month:'long',day:'numeric',year:'numeric'})}
+                    </div>
+                    <div style={{fontSize:13,fontWeight:600,color:'#065F46',marginTop:4}}>
+                      🕐 {(() => { const [h] = (selected.scheduled_time||'00:00').split(':'); const hr=parseInt(h); return `${hr>12?hr-12:hr||12}:00 ${hr>=12?'PM':'AM'}`; })()}
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div style={{background:'#F9FAFB',border:`1px dashed ${tokens.border}`,borderRadius:12,padding:20,textAlign:'center'}}>
+                    <div style={{fontSize:28,marginBottom:8}}>📅</div>
+                    <div className="text-sm text-muted">Schedule will appear here once the parent selects dates from the calendar.</div>
+                  </div>
+                )}
               </div>
             )}
           </div>

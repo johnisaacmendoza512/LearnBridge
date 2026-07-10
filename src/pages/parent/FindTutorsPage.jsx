@@ -1,141 +1,272 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Icon from '../../components/ui/Icon';
 import Badge from '../../components/ui/Badge';
+import Modal from '../../components/ui/Modal';
 import FormGroup from '../../components/ui/FormGroup';
 import EmptyState from '../../components/ui/EmptyState';
 import Spinner from '../../components/ui/Spinner';
-import Avatar from '../../components/ui/Avatar';
-import Modal from '../../components/ui/Modal';
 import { useTutors } from '../../hooks/useTutors';
-import { useInquiries } from '../../hooks/useInquiries';
+import { useStudents } from '../../hooks/useStudents';
 import { useBookings } from '../../hooks/useBookings';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../context/AuthContext';
 import tokens from '../../lib/tokens';
 
-function TutorAvatar({ name, avatarUrl, size = 48, colorIndex = 0 }) {
-  if (avatarUrl) {
-    return (
-      <img src={avatarUrl} alt={name} style={{
-        width: size, height: size, borderRadius: '50%',
-        objectFit: 'cover', flexShrink: 0,
-        border: `2px solid ${tokens.border}`,
-      }} />
-    );
-  }
-  return <Avatar name={name} size={size} colorIndex={colorIndex} />;
+const ACCENT_COLORS = [tokens.primary, tokens.accent, tokens.muted];
+const HOURS = Array.from({length:15},(_,i)=>i+6); // 6am to 8pm
+
+function fmtHour(h) {
+  if (h === 12) return '12:00 PM';
+  return h < 12 ? `${h}:00 AM` : `${h-12}:00 PM`;
 }
 
-function StarRating({ value, max = 5, size = 13 }) {
+function getDaysInMonth(year, month) {
+  return new Date(year, month+1, 0).getDate();
+}
+
+function getFirstDayOfMonth(year, month) {
+  return new Date(year, month, 1).getDay();
+}
+
+function toDateStr(year, month, day) {
+  return `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+}
+
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const DAYS_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+function Toast({ msg, type, onClose }) {
+  if (!msg) return null;
+  const bg = type==='error'?'#FEE2E2':'#D1FAE5', color=type==='error'?'#DC2626':'#065F46';
   return (
-    <span style={{ display: 'inline-flex', gap: 2 }}>
-      {Array.from({ length: max }, (_, i) => (
-        <span key={i} style={{ fontSize: size, color: i < Math.round(value) ? '#F59E0B' : '#D1D5DB' }}>★</span>
+    <div style={{position:'fixed',top:24,right:24,zIndex:99999,background:bg,borderRadius:12,padding:'14px 20px',fontSize:14,color,fontWeight:600,boxShadow:'0 4px 20px rgba(0,0,0,.12)',display:'flex',alignItems:'center',gap:10,maxWidth:380}}>
+      <span>{type==='error'?'❌':'✅'}</span><span style={{flex:1}}>{msg}</span>
+      <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',color,fontSize:16,padding:0}}>✕</button>
+    </div>
+  );
+}
+
+// Reviews sub-component
+function TutorReviews({ tutorId }) {
+  const [reviews, setReviews] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    if (!tutorId) return;
+    supabase.from('tutor_ratings')
+      .select('*, parent:parent_id(full_name)')
+      .eq('tutor_id', tutorId)
+      .order('created_at', {ascending:false})
+      .then(({data}) => { setReviews(data||[]); setLoading(false); });
+  }, [tutorId]);
+
+  if (loading) return <div style={{fontSize:13,color:tokens.muted}}>Loading reviews...</div>;
+  if (reviews.length===0) return (
+    <div style={{background:'#F9FAFB',borderRadius:10,padding:16,textAlign:'center',color:tokens.muted,fontSize:13}}>
+      No reviews yet. Be the first to book this tutor!
+    </div>
+  );
+  return (
+    <div style={{display:'flex',flexDirection:'column',gap:10}}>
+      {reviews.map(r=>(
+        <div key={r.id} style={{background:'#FAFAFA',borderRadius:10,padding:14,border:`1px solid ${tokens.border}`}}>
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+            <span style={{fontWeight:700,fontSize:13}}>{r.parent?.full_name||'Parent'}</span>
+            <span style={{color:'#F59E0B',fontSize:14}}>{'★'.repeat(r.star_rating||5)}{'☆'.repeat(5-(r.star_rating||5))}</span>
+          </div>
+          {r.comment&&<p style={{fontSize:13,color:tokens.mid,lineHeight:1.6,margin:0}}>{r.comment}</p>}
+        </div>
       ))}
-    </span>
+    </div>
   );
 }
 
 export default function FindTutorsPage() {
-  const navigate             = useNavigate();
-  const { tutors, loading }  = useTutors();
-  const { startInquiry }     = useInquiries();
-  const { bookings }         = useBookings();
+  const { user } = useAuth();
+  const { tutors, loading } = useTutors(); // fetches nbi_clearance_url, prc_license_url etc from tutors table
+  const { students } = useStudents();
+  const { createBooking, bookings } = useBookings();
 
-  const [subject,      setSubject]      = useState('');
-  const [budget,       setBudget]       = useState('');
-  const [gender,       setGender]       = useState('');
-  const [inquiring,    setInquiring]    = useState(null);
-  const [profileModal, setProfileModal] = useState(null);
-  const [ratingsMap,   setRatingsMap]   = useState({});
+  const [subject,  setSubject]  = useState('');
+  const [budget,   setBudget]   = useState('');
+  const [gender,   setGender]   = useState('');
+  const [toast,    setToast]    = useState(null);
+  const [viewTutor, setViewTutor] = useState(null); // tutor profile modal
 
-  useEffect(() => {
-    if (!tutors.length) return;
-    const fetchRatings = async () => {
-      const tutorIds = tutors.map(t => t.id);
-      const { data: ratingData } = await supabase
-        .from('tutor_ratings')
-        .select(`id, tutor_id, star_rating, comment, created_at, parent:parent_id ( full_name )`)
-        .in('tutor_id', tutorIds)
-        .order('created_at', { ascending: false });
+  // Get tutor IDs that parent already has active bookings with
+  const activeTutorIds = new Set(
+    bookings
+      .filter(b => ['pending','confirmed','pending_parent_confirm'].includes(b.status))
+      .map(b => b.tutor_id)
+  );
 
-      if (!ratingData?.length) return;
+  // Booking modal steps: 'details' | 'calendar' | 'confirm'
+  const [booking,  setBooking]  = useState(null); // tutor object
+  const [step,     setStep]     = useState('details');
+  const [form,     setForm]     = useState({student_id:'',payment_method:'cash',session_mode:'face-to-face'});
+  const [saving,   setSaving]   = useState(false);
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
 
-      const grouped = {};
-      (ratingData || []).forEach(r => {
-        if (!grouped[r.tutor_id]) grouped[r.tutor_id] = [];
-        grouped[r.tutor_id].push(r);
-      });
+  // Calendar state
+  const today = new Date();
+  const [calYear,      setCalYear]      = useState(today.getFullYear());
+  const [calMonth,     setCalMonth]     = useState(today.getMonth());
+  const [slots,        setSlots]        = useState([]); // occupied/pending slots for this tutor
+  const [selectedSlots,setSelectedSlots]= useState([]); // [{date,time}] max 8
+  const [pickingDate,  setPickingDate]  = useState(null); // date string being assigned a time
+  const REQUIRED_SESSIONS = 8;
 
-      const map = {};
-      Object.entries(grouped).forEach(([tutorId, ratings]) => {
-        const avg = ratings.reduce((s, r) => s + r.star_rating, 0) / ratings.length;
-        map[tutorId] = {
-          avg:     Math.round(avg * 10) / 10,
-          count:   ratings.length,
-          reviews: ratings.slice(0, 5),
-        };
-      });
-      setRatingsMap(map);
-    };
-    fetchRatings();
-  }, [tutors]);
+  const showToast = (msg,type='success') => { setToast({msg,type}); setTimeout(()=>setToast(null),3500); };
 
-  const getBookingStatus = (tutorId) => {
-    const b = bookings.find(b => b.tutor_id === tutorId);
-    return b?.status || null;
+  const fetchSlots = useCallback(async (tutorId) => {
+    const { data } = await supabase
+      .from('booking_slots')
+      .select('slot_date,slot_time,status')
+      .eq('tutor_id', tutorId);
+    setSlots(data||[]);
+  },[]);
+
+  useEffect(()=>{
+    if (booking && step==='calendar') fetchSlots(booking.id);
+  },[booking,step,fetchSlots]);
+
+  const getDateStatus = (dateStr) => {
+    const daySlots = slots.filter(s=>s.slot_date===dateStr);
+    if (daySlots.some(s=>s.status==='confirmed')) return 'occupied';
+    if (daySlots.some(s=>s.status==='pending'))   return 'pending';
+    return 'available';
   };
-  const isOngoing   = (tutorId) => ['pending','confirmed','pending_parent_confirm'].includes(getBookingStatus(tutorId));
-  const isAvailable = (tutor)   => Number(tutor.wallet_balance || 0) > 0;
+
+  const isTimeOccupied = (dateStr, hour) => {
+    const timeStr = `${String(hour).padStart(2,'0')}:00:00`;
+    return slots.some(s=>s.slot_date===dateStr&&s.slot_time===timeStr);
+  };
+
+  const handleOpenCalendar = () => {
+    if (!form.student_id) { showToast('Please select a child first.','error'); return; }
+    setStep('calendar');
+    setSelectedSlots([]);
+    setPickingDate(null);
+  };
+
+  const handleSelectDate = (dateStr, status) => {
+    if (status !== 'available') return;
+    // If already selected, remove it
+    if (selectedSlots.find(s=>s.date===dateStr)) {
+      setSelectedSlots(prev=>prev.filter(s=>s.date!==dateStr));
+      if (pickingDate===dateStr) setPickingDate(null);
+      return;
+    }
+    // If already 8 selected, don't add more
+    if (selectedSlots.length >= REQUIRED_SESSIONS) {
+      showToast(`You can only select ${REQUIRED_SESSIONS} dates.`,'error'); return;
+    }
+    // Open time picker for this date
+    setPickingDate(dateStr);
+  };
+
+  const handleSelectTime = (dateStr, hour) => {
+    const timeStr = `${String(hour).padStart(2,'0')}:00:00`;
+    setSelectedSlots(prev => {
+      const existing = prev.find(s=>s.date===dateStr);
+      if (existing) return prev.map(s=>s.date===dateStr?{...s,time:hour,timeStr}:s);
+      return [...prev,{date:dateStr,time:hour,timeStr}];
+    });
+    setPickingDate(null);
+  };
+
+  const handleConfirmSchedule = () => {
+    if (selectedSlots.length < REQUIRED_SESSIONS) {
+      showToast(`Please select all ${REQUIRED_SESSIONS} session dates.`,'error'); return;
+    }
+    if (selectedSlots.some(s=>s.time===undefined)) {
+      showToast('Please select a time for all dates.','error'); return;
+    }
+    setStep('confirm');
+  };
+
+  const handleBook = async () => {
+    if (!booking||!form.student_id||selectedSlots.length<REQUIRED_SESSIONS) return;
+    setSaving(true);
+    try {
+      // Use first slot as primary scheduled_date for the booking record
+      const firstSlot = selectedSlots[0];
+      const data = await createBooking({
+        tutor_id:       booking.id,
+        student_id:     form.student_id,
+        subject:        subject||(booking.specialization||[])[0]||'',
+        session_mode:   form.session_mode,
+        payment_method: form.payment_method,
+        total_amount:   (booking.approved_rate||booking.rate_per_session||0)*8,
+        scheduled_date: firstSlot.date,
+        scheduled_time: firstSlot.timeStr,
+        schedule_status:'pending',
+      });
+
+      // Insert all 8 slots
+      if (data?.id) {
+        const slotsToInsert = selectedSlots.map((s,i)=>({
+          tutor_id:       booking.id,
+          booking_id:     data.id,
+          slot_date:      s.date,
+          slot_time:      s.timeStr,
+          session_number: i+1,
+          status:         'pending',
+        }));
+        const { error: slotError } = await supabase.from('booking_slots').insert(slotsToInsert);
+        if (slotError) console.error('Slot insert error:', slotError.message);
+      }
+
+      setBooking(null);
+      setStep('details');
+      setForm({student_id:'',payment_method:'cash',session_mode:'face-to-face'});
+      setSelectedSlots([]);
+      setPickingDate(null);
+      showToast('Booking submitted with 8 sessions! Waiting for tutor confirmation.');
+    } catch(e) {
+      showToast(e.message,'error');
+    } finally { setSaving(false); }
+  };
 
   const filtered = tutors.filter(t => {
-    if (subject && !(t.specialization || []).includes(subject)) return false;
-    const rate = (t.approved_rate || t.rate_per_session || 0) * 8;
+    if (subject && !(t.specialization||[]).includes(subject)) return false;
+    const rate = t.approved_rate||t.rate_per_session||0;
     if (budget && rate > parseInt(budget)) return false;
     if (gender && t.profile?.gender !== gender) return false;
     return true;
   });
 
-  const handleInquire = async (tutor) => {
-    setInquiring(tutor.id);
-    try {
-      await startInquiry({ tutorId: tutor.id, subject: subject || (tutor.specialization || [])[0] || '' });
-      navigate('/messages', { state: { openTutorId: tutor.id } });
-    } catch (e) { alert('Could not start inquiry: ' + e.message); }
-    finally { setInquiring(null); }
-  };
+  // Build calendar grid
+  const daysInMonth   = getDaysInMonth(calYear, calMonth);
+  const firstDayOfMonth = getFirstDayOfMonth(calYear, calMonth);
+  const todayStr = toDateStr(today.getFullYear(), today.getMonth(), today.getDate());
 
-  if (loading) return <Spinner dark size={32} />;
+  if (loading) return <Spinner dark size={32}/>;
 
   return (
     <div className="fade-in">
-      <div className="mb-20">
-        <h2 className="font-jakarta font-extrabold" style={{ fontSize: 22 }}>Find a Tutor</h2>
-        <p className="text-sm text-muted mt-4">
-          Browse verified tutors. All prices shown are for the full <strong>8-session package</strong>.
-        </p>
-      </div>
+      <Toast msg={toast?.msg} type={toast?.type} onClose={()=>setToast(null)}/>
 
       {/* Filters */}
       <div className="card p-20 mb-20">
         <div className="flex items-center gap-8 mb-16">
-          <Icon name="filter" size={15} color={tokens.primary} />
-          <h3 className="font-jakarta font-bold" style={{ fontSize: 15 }}>Filter Tutors</h3>
+          <Icon name="filter" size={15} color={tokens.primary}/>
+          <h3 className="font-jakarta font-bold" style={{fontSize:15}}>Filter Tutors</h3>
         </div>
         <div className="grid-3">
           <FormGroup label="Subject">
-            <select className="select" value={subject} onChange={e => setSubject(e.target.value)}>
+            <select className="select" value={subject} onChange={e=>setSubject(e.target.value)}>
               <option value="">All Subjects</option>
               <option value="english">English</option>
               <option value="mathematics">Mathematics</option>
             </select>
           </FormGroup>
-          <FormGroup label="Max Budget (₱ for 8 sessions)">
-            <input className="input" type="number" placeholder="e.g. 3200"
-              value={budget} onChange={e => setBudget(e.target.value)} />
+          <FormGroup label="Max Budget (₱/session)">
+            <input className="input" type="number" placeholder="e.g. 400" value={budget} onChange={e=>setBudget(e.target.value)}/>
           </FormGroup>
           <FormGroup label="Gender Preference">
-            <select className="select" value={gender} onChange={e => setGender(e.target.value)}>
+            <select className="select" value={gender} onChange={e=>setGender(e.target.value)}>
               <option value="">No Preference</option>
               <option value="Female">Female</option>
               <option value="Male">Male</option>
@@ -144,309 +275,378 @@ export default function FindTutorsPage() {
         </div>
       </div>
 
-      {/* Results header */}
       <div className="flex items-center justify-between mb-16">
-        <h3 className="font-jakarta font-bold">
-          {filtered.length} Tutor{filtered.length !== 1 ? 's' : ''} Found
-        </h3>
-        {filtered.length > 0 && (
-          <Badge variant="success">
-            <Icon name="check" size={10} color="#065F46" /> Verified & approved tutors only
-          </Badge>
-        )}
+        <h3 className="font-jakarta font-bold">{filtered.length} Tutor{filtered.length!==1?'s':''} Found</h3>
+        {filtered.length>0&&<Badge variant="success"><Icon name="check" size={10} color="#065F46"/> Verified & approved tutors only</Badge>}
       </div>
 
-      {filtered.length === 0 ? (
-        <div className="card">
-          <EmptyState icon="🔍" title="No tutors match your filters"
-            description="Try widening your budget or removing filters." />
-        </div>
+      {filtered.length===0 ? (
+        <div className="card"><EmptyState icon="🔍" title="No tutors match your filters" description="Try widening your budget or removing filters."/></div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {filtered.map((t, i) => {
-            const rate        = t.approved_rate || t.rate_per_session || 0;
-            const totalPrice  = rate * 8;
-            const specs       = t.specialization || [];
-            const certScores  = t.certification_scores || {};
-            const rating      = ratingsMap[t.id];
-            const ongoing     = isOngoing(t.id);
-            const isInquiring = inquiring === t.id;
-            const available   = isAvailable(t);
-
-            return (
-              <div key={t.id} className="card p-24">
-                <div style={{ display: 'grid', gridTemplateColumns: '56px 1fr auto', gap: 20, alignItems: 'flex-start' }}>
-
-                  <TutorAvatar name={t.profile?.full_name || 'T'} avatarUrl={t.profile?.avatar_url} size={56} colorIndex={i} />
-
-                  <div>
-                    <div className="flex items-center gap-10 mb-6" style={{ flexWrap: 'wrap' }}>
-                      <h3 className="font-jakarta font-bold"
-                        style={{ fontSize: 17, cursor: 'pointer', color: tokens.primary }}
-                        onClick={() => setProfileModal(t)}>
-                        {t.profile?.full_name || 'Tutor'}
-                      </h3>
-                      <Badge variant="success"><Icon name="shield" size={9} color="#065F46" /> Verified</Badge>
-                      {t.profile?.gender && <Badge variant="gray">{t.profile.gender}</Badge>}
-                    </div>
-
-                    {rating ? (
-                      <div className="flex items-center gap-8 mb-8">
-                        <StarRating value={rating.avg} />
-                        <span className="font-semibold" style={{ fontSize: 13, color: '#F59E0B' }}>{rating.avg.toFixed(1)}</span>
-                        <span className="text-xs text-muted">({rating.count} review{rating.count !== 1 ? 's' : ''})</span>
-                        <button onClick={() => setProfileModal(t)} style={{ fontSize: 11, color: tokens.primary, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, textDecoration: 'underline' }}>
-                          View Profile
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-8 mb-8">
-                        <span className="text-xs text-muted">No ratings yet</span>
-                        <button onClick={() => setProfileModal(t)} style={{ fontSize: 11, color: tokens.primary, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, textDecoration: 'underline' }}>
-                          View Profile
-                        </button>
-                      </div>
-                    )}
-
-                    <div className="flex gap-16 mb-8" style={{ flexWrap: 'wrap' }}>
-                      {[
-                        t.years_experience != null && `${t.years_experience} yr${t.years_experience !== 1 ? 's' : ''} experience`,
-                        t.profile?.location,
-                      ].filter(Boolean).map((d, j) => (
-                        <span key={j} className="text-xs text-muted">{d}</span>
-                      ))}
-                    </div>
-
-                    <div className="flex gap-6 mb-8" style={{ flexWrap: 'wrap' }}>
-                      {specs.map(s => (
-                        <span key={s} style={{
-                          padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-                          background: s === 'english' ? '#EFF6FF' : '#F0FDF4',
-                          color:      s === 'english' ? '#1D4ED8' : '#15803D',
-                          textTransform: 'capitalize',
-                        }}>{s}</span>
-                      ))}
-                    </div>
-
-                    {t.profile?.bio && (
-                      <p className="text-sm text-muted mb-8" style={{ lineHeight: 1.6, maxWidth: 480 }}>{t.profile.bio}</p>
-                    )}
-
-                    {Object.keys(certScores).length > 0 && (
-                      <div className="flex gap-6" style={{ flexWrap: 'wrap' }}>
-                        {Object.entries(certScores).map(([topic, score]) => (
-                          <div key={topic} style={{
-                            padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
-                            background: score >= 80 ? '#D1FAE5' : '#FEF3C7',
-                            color:      score >= 80 ? '#065F46' : '#92400E',
-                          }}>
-                            {topic.replace(/_/g, ' ')}: {score}%
-                          </div>
-                        ))}
-                      </div>
-                    )}
+        <div style={{display:'flex',flexDirection:'column',gap:16}}>
+          {filtered.map((t,i)=>(
+            <div key={t.id} className="card p-24">
+              <div className="flex items-start gap-16">
+                <div style={{width:52,height:52,borderRadius:14,background:ACCENT_COLORS[i%3],display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,overflow:'hidden'}}>
+                  {t.profile?.avatar_url
+                    ? <img src={t.profile.avatar_url} alt={t.profile?.full_name} style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                    : <span style={{color:'#fff',fontWeight:800,fontSize:20}}>{(t.profile?.full_name||'T').charAt(0)}</span>}
+                </div>
+                <div style={{flex:1}}>
+                  <div className="font-jakarta font-bold" style={{fontSize:16}}>{t.profile?.full_name||'Tutor'}</div>
+                  <div className="text-sm text-muted mb-8">{(t.specialization||[]).join(' · ')||'General'}</div>
+                  <div className="flex gap-8 mb-12" style={{flexWrap:'wrap'}}>
+                    <Badge variant="success">✓ Verified</Badge>
+                    <Badge variant="info">₱{t.approved_rate||t.rate_per_session||0}/session</Badge>
+                    {t.profile?.gender&&<Badge variant="gray">{t.profile.gender}</Badge>}
                   </div>
-
-                  <div style={{ textAlign: 'right', minWidth: 150 }}>
-                    <div className="font-jakarta font-black" style={{ fontSize: 26, color: tokens.primary }}>
-                      ₱{totalPrice.toLocaleString()}
-                    </div>
-                    <div className="text-xs text-muted mb-2">for 8 sessions</div>
-                    <div style={{ fontSize: 11, color: tokens.mid, marginBottom: 14, background: '#F3F4F6', padding: '2px 8px', borderRadius: 6, display: 'inline-block' }}>
-                      ₱{rate.toLocaleString()} / session
-                    </div>
-
-                    {!available ? (
-                      <div>
-                        <button disabled style={{ width: '100%', padding: '9px 16px', borderRadius: 8, border: 'none', background: '#F3F4F6', color: '#9CA3AF', fontSize: 13, fontWeight: 700, cursor: 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                          🚫 Not Available
-                        </button>
-                        <div style={{ fontSize: 10, color: tokens.muted, textAlign: 'center', marginTop: 5 }}>Tutor temporarily unavailable</div>
-                      </div>
-                    ) : ongoing ? (
-                      <button disabled style={{ width: '100%', padding: '9px 16px', borderRadius: 8, border: 'none', background: '#FEF9C3', color: '#CA8A04', fontSize: 13, fontWeight: 700, cursor: 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                        <Icon name="clock" size={13} color="#CA8A04" /> On-going
+                  <div className="flex gap-8">
+                    <button className="btn btn-ghost btn-sm" onClick={()=>setViewTutor(t)}>
+                      <Icon name="eye" size={13}/> View Profile
+                    </button>
+                    {activeTutorIds.has(t.id) ? (
+                      <button className="btn btn-sm" disabled style={{background:'#FEF9C3',color:'#92400E',border:'1px solid #FDE68A',cursor:'not-allowed',fontWeight:700}}>
+                        ⏳ Ongoing Session
                       </button>
                     ) : (
-                      <button className="btn btn-primary btn-sm" onClick={() => handleInquire(t)} disabled={isInquiring} style={{ width: '100%' }}>
-                        {isInquiring ? 'Opening chat...' : <><Icon name="message" size={13} /> Inquire Now</>}
+                      <button className="btn btn-primary btn-sm" onClick={()=>{setBooking(t);setStep('details');}} disabled={students.length===0}>
+                        <Icon name="calendar" size={13}/> Book Now
                       </button>
                     )}
                   </div>
+                  {students.length===0&&!activeTutorIds.has(t.id)&&<p className="text-xs text-muted mt-8">Add a child profile first to book.</p>}
                 </div>
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       )}
 
-      {/* Full Tutor Profile Modal */}
+      {/* ── Booking Modal ── */}
       <Modal
-        open={!!profileModal}
-        onClose={() => setProfileModal(null)}
-        title="Tutor Profile"
+        open={!!booking}
+        onClose={()=>{setBooking(null);setStep('details');}}
+        title={
+          step==='details'  ? `Book ${booking?.profile?.full_name||'Tutor'}` :
+          step==='calendar' ? `📅 Select 8 Session Dates (${selectedSlots.length}/${REQUIRED_SESSIONS})` :
+          '✅ Confirm Booking'
+        }
         footer={
-          <div className="flex gap-10" style={{ width: '100%' }}>
-            <button className="btn btn-ghost btn-full" onClick={() => setProfileModal(null)}>Close</button>
-            {profileModal && !isOngoing(profileModal.id) && isAvailable(profileModal) && (
-              <button className="btn btn-primary btn-full" disabled={inquiring === profileModal.id}
-                onClick={() => { setProfileModal(null); handleInquire(profileModal); }}>
-                <Icon name="message" size={13} /> Inquire Now
+          step==='details' ? (
+            <>
+              <button className="btn btn-ghost" onClick={()=>setBooking(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleOpenCalendar} disabled={!form.student_id}>
+                📅 Select Schedule →
               </button>
-            )}
-          </div>
+            </>
+          ) : step==='calendar' ? (
+            <>
+              <button className="btn btn-ghost" onClick={()=>setStep('details')}>← Back</button>
+              <button className="btn btn-primary" onClick={handleConfirmSchedule}
+                disabled={selectedSlots.length<REQUIRED_SESSIONS||selectedSlots.some(s=>s.time===undefined)}>
+                Confirm {selectedSlots.length}/{REQUIRED_SESSIONS} Sessions →
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="btn btn-ghost" onClick={()=>setStep('calendar')}>← Back</button>
+              <button className="btn btn-primary" onClick={handleBook} disabled={saving}>
+                {saving?'Booking...':'✓ Confirm Booking'}
+              </button>
+            </>
+          )
         }
       >
-        {profileModal && (() => {
-          const t            = profileModal;
-          const rating       = ratingsMap[t.id];
-          const rate         = t.approved_rate || t.rate_per_session || 0;
-          const specs        = t.specialization || [];
-          const cert         = t.certification_scores || {};
-          const tutorAvailable = isAvailable(t);
-
-          return (
-            <div>
-              {!tutorAvailable && (
-                <div style={{ background: '#FEE2E2', border: '1px solid #FCA5A5', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#DC2626', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 10 }}>
-                  🚫 This tutor is currently not available for new bookings.
-                  <span style={{ fontWeight: 400, fontSize: 12 }}>They need to top up their wallet before accepting students.</span>
+        {booking && (
+          <div>
+            {/* STEP 1: Details */}
+            {step==='details' && (
+              <div>
+                <div style={{background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:10,padding:'12px 16px',marginBottom:20,fontSize:13,color:'#1D4ED8'}}>
+                  ℹ️ Select your child, payment method, and session mode. Then choose your preferred schedule.
                 </div>
-              )}
+                <FormGroup label="Which child is this for?">
+                  <select className="select" value={form.student_id} onChange={e=>set('student_id',e.target.value)}>
+                    <option value="">Select a child</option>
+                    {students.map(s=><option key={s.id} value={s.id}>{s.name} (Grade {s.grade_level})</option>)}
+                  </select>
+                </FormGroup>
+                <FormGroup label="Payment Method">
+                  <select className="select" value={form.payment_method} onChange={e=>set('payment_method',e.target.value)}>
+                    <option value="cash">Cash</option>
+                    <option value="gcash">GCash</option>
+                    <option value="bank_transfer">Bank Transfer</option>
+                  </select>
+                </FormGroup>
+                <FormGroup label="Session Mode">
+                  <select className="select" value={form.session_mode} onChange={e=>set('session_mode',e.target.value)}>
+                    <option value="face-to-face">Face-to-Face</option>
+                    <option value="online">Online</option>
+                  </select>
+                </FormGroup>
+              </div>
+            )}
 
-              <div style={{ background: `linear-gradient(135deg, ${tokens.primaryLight}, #EFF6FF)`, borderRadius: 14, padding: 20, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 16 }}>
-                <TutorAvatar name={t.profile?.full_name || 'T'} avatarUrl={t.profile?.avatar_url} size={60} colorIndex={0} />
-                <div style={{ flex: 1 }}>
-                  <div className="font-jakarta font-extrabold" style={{ fontSize: 18 }}>{t.profile?.full_name || 'Tutor'}</div>
-                  <div className="flex items-center gap-8 mt-4" style={{ flexWrap: 'wrap' }}>
-                    <Badge variant="success"><Icon name="shield" size={9} color="#065F46" /> Verified</Badge>
-                    {t.profile?.gender && <Badge variant="gray">{t.profile.gender}</Badge>}
-                    {t.profile?.location && <span className="text-xs text-muted">📍 {t.profile.location}</span>}
-                  </div>
-                  {rating && (
-                    <div className="flex items-center gap-6 mt-6">
-                      <StarRating value={rating.avg} size={14} />
-                      <span className="font-semibold" style={{ fontSize: 13, color: '#F59E0B' }}>{rating.avg.toFixed(1)}</span>
-                      <span className="text-xs text-muted">({rating.count} review{rating.count !== 1 ? 's' : ''})</span>
+            {/* STEP 2: Calendar — select 8 dates each with its own time */}
+            {step==='calendar' && (
+              <div>
+                {/* Progress counter */}
+                <div style={{background:selectedSlots.length===REQUIRED_SESSIONS?'#D1FAE5':'#EFF6FF',border:`1px solid ${selectedSlots.length===REQUIRED_SESSIONS?'#6EE7B7':'#BFDBFE'}`,borderRadius:10,padding:'12px 16px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                  <span style={{fontSize:13,fontWeight:600,color:selectedSlots.length===REQUIRED_SESSIONS?'#065F46':'#1D4ED8'}}>
+                    {selectedSlots.length===REQUIRED_SESSIONS ? '✅ All 8 sessions selected!' : `📅 Select ${REQUIRED_SESSIONS} session dates`}
+                  </span>
+                  <span style={{fontSize:20,fontWeight:900,color:selectedSlots.length===REQUIRED_SESSIONS?'#065F46':'#1D4ED8'}}>
+                    {selectedSlots.length}/{REQUIRED_SESSIONS}
+                  </span>
+                </div>
+
+                {/* Legend */}
+                <div className="flex gap-10 mb-12" style={{flexWrap:'wrap'}}>
+                  {[['#22C55E','Available'],['#EF4444','Occupied'],['#F59E0B','Pending'],['#6366F1','Selected']].map(([c,l])=>(
+                    <div key={l} className="flex items-center gap-6">
+                      <div style={{width:12,height:12,borderRadius:3,background:c}}/>
+                      <span style={{fontSize:11,color:tokens.muted}}>{l}</span>
                     </div>
-                  )}
+                  ))}
                 </div>
-                <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                  <div className="font-jakarta font-black" style={{ fontSize: 22, color: tokens.primary }}>₱{(rate * 8).toLocaleString()}</div>
-                  <div className="text-xs text-muted">for 8 sessions</div>
-                  <div style={{ fontSize: 11, color: tokens.mid, marginTop: 2 }}>₱{rate.toLocaleString()}/session</div>
-                </div>
-              </div>
 
-              {t.profile?.bio && (
-                <div style={{ marginBottom: 20 }}>
-                  <div className="text-xs font-bold text-muted uppercase mb-8" style={{ letterSpacing: '0.5px' }}>About</div>
-                  <p style={{ fontSize: 13, color: tokens.mid, lineHeight: 1.7, margin: 0 }}>{t.profile.bio}</p>
+                {/* Month navigation */}
+                <div className="flex items-center justify-between mb-12">
+                  <button className="btn btn-ghost btn-sm" onClick={()=>{
+                    if (calMonth===0){setCalMonth(11);setCalYear(y=>y-1);}
+                    else setCalMonth(m=>m-1);
+                  }}>←</button>
+                  <div className="font-jakarta font-bold" style={{fontSize:15}}>{MONTHS[calMonth]} {calYear}</div>
+                  <button className="btn btn-ghost btn-sm" onClick={()=>{
+                    if (calMonth===11){setCalMonth(0);setCalYear(y=>y+1);}
+                    else setCalMonth(m=>m+1);
+                  }}>→</button>
                 </div>
-              )}
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
-                {[
-                  ['Experience', `${t.years_experience || 0} year${t.years_experience !== 1 ? 's' : ''}`],
-                  ['Location',   t.profile?.location || '—'],
-                  ['Gender',     t.profile?.gender   || '—'],
-                  ['Status',     'Verified & Approved'],
-                ].map(([k, v]) => (
-                  <div key={k} style={{ background: '#F9FAFB', borderRadius: 8, padding: 12 }}>
-                    <div className="text-xs text-muted uppercase font-bold mb-4" style={{ letterSpacing: '0.5px' }}>{k}</div>
-                    <div className="font-semibold" style={{ fontSize: 13 }}>{v}</div>
+                {/* Day headers */}
+                <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4,marginBottom:4}}>
+                  {DAYS_SHORT.map(d=>(
+                    <div key={d} style={{textAlign:'center',fontSize:11,fontWeight:700,color:tokens.muted,padding:'4px 0'}}>{d}</div>
+                  ))}
+                </div>
+
+                {/* Calendar grid */}
+                <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4,marginBottom:16}}>
+                  {Array.from({length:firstDayOfMonth}).map((_,i)=>(
+                    <div key={`empty-${i}`}/>
+                  ))}
+                  {Array.from({length:daysInMonth},(_,i)=>i+1).map(day=>{
+                    const dateStr   = toDateStr(calYear,calMonth,day);
+                    const isPast    = dateStr < todayStr;
+                    const status    = getDateStatus(dateStr);
+                    const selSlot   = selectedSlots.find(s=>s.date===dateStr);
+                    const isSelected= !!selSlot;
+                    const slotNum   = isSelected ? selectedSlots.indexOf(selSlot)+1 : null;
+                    const isPickingThis = pickingDate===dateStr;
+
+                    let bg='#F0FDF4', border='#22C55E', cursor='pointer', color='#15803D';
+                    if (isPast)               { bg='#F9FAFB'; border=tokens.border; cursor='default'; color=tokens.muted; }
+                    else if (isSelected)      { bg='#EEF2FF'; border='#6366F1'; color='#4F46E5'; }
+                    else if (isPickingThis)   { bg='#FDF4FF'; border='#A855F7'; color='#7C3AED'; }
+                    else if (status==='occupied'){ bg='#FEF2F2'; border='#EF4444'; cursor='default'; color='#DC2626'; }
+                    else if (status==='pending') { bg='#FFFBEB'; border='#F59E0B'; cursor='default'; color='#D97706'; }
+
+                    return (
+                      <button key={day} type="button"
+                        disabled={isPast||(status!=='available'&&!isSelected)}
+                        onClick={()=>handleSelectDate(dateStr,status)}
+                        style={{padding:'6px 2px',borderRadius:8,border:`2px solid ${border}`,background:bg,cursor,color,fontWeight:isSelected?800:600,fontSize:12,transition:'all 0.15s',textAlign:'center',minHeight:44,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:2}}>
+                        <span>{day}</span>
+                        {isSelected&&slotNum&&<span style={{fontSize:9,fontWeight:800,background:'#6366F1',color:'#fff',borderRadius:4,padding:'1px 4px'}}>#{slotNum}</span>}
+                        {isSelected&&selSlot?.time!==undefined&&<span style={{fontSize:9,color:'#6366F1'}}>{fmtHour(selSlot.time).replace(':00','')}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Time picker for selected date */}
+                {pickingDate && (
+                  <div style={{background:'#FDF4FF',border:'1px solid #E9D5FF',borderRadius:12,padding:14,marginBottom:12}}>
+                    <div className="font-jakarta font-bold mb-10" style={{fontSize:13,color:'#7C3AED'}}>
+                      🕐 Select time for {new Date(pickingDate+'T00:00:00').toLocaleDateString('en-PH',{weekday:'short',month:'short',day:'numeric'})}
+                    </div>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6}}>
+                      {HOURS.map(h=>{
+                        const occupied = isTimeOccupied(pickingDate,h);
+                        return (
+                          <button key={h} type="button" disabled={occupied}
+                            onClick={()=>handleSelectTime(pickingDate,h)}
+                            style={{padding:'7px',borderRadius:8,border:`1.5px solid ${occupied?'#EF4444':tokens.border}`,background:occupied?'#FEF2F2':'#fff',color:occupied?'#DC2626':tokens.mid,fontSize:11,fontWeight:400,cursor:occupied?'default':'pointer',transition:'all 0.15s'}}>
+                            {fmtHour(h)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <button className="btn btn-ghost btn-sm mt-10" onClick={()=>setPickingDate(null)}>Cancel</button>
                   </div>
-                ))}
-              </div>
+                )}
 
-              {specs.length > 0 && (
-                <div style={{ marginBottom: 20 }}>
-                  <div className="text-xs font-bold text-muted uppercase mb-8" style={{ letterSpacing: '0.5px' }}>Subjects</div>
-                  <div className="flex gap-8" style={{ flexWrap: 'wrap' }}>
-                    {specs.map(s => (
-                      <span key={s} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 13, fontWeight: 600, background: s === 'english' ? '#EFF6FF' : '#F0FDF4', color: s === 'english' ? '#1D4ED8' : '#15803D', textTransform: 'capitalize' }}>{s}</span>
-                    ))}
+                {/* Selected sessions list */}
+                {selectedSlots.length>0&&(
+                  <div style={{background:'#F9FAFB',borderRadius:10,padding:12}}>
+                    <div className="font-semibold mb-8" style={{fontSize:13}}>Selected Sessions:</div>
+                    <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                      {selectedSlots.map((s,i)=>(
+                        <div key={s.date} style={{display:'flex',alignItems:'center',gap:10,fontSize:12}}>
+                          <span style={{width:20,height:20,borderRadius:'50%',background:'#6366F1',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:800,flexShrink:0}}>
+                            {i+1}
+                          </span>
+                          <span style={{flex:1,fontWeight:500}}>
+                            {new Date(s.date+'T00:00:00').toLocaleDateString('en-PH',{weekday:'short',month:'short',day:'numeric'})}
+                            {s.time!==undefined ? ` · ${fmtHour(s.time)}` : <span style={{color:'#F59E0B'}}> · tap date to set time</span>}
+                          </span>
+                          <button onClick={()=>setSelectedSlots(prev=>prev.filter((_,pi)=>pi!==i))} style={{background:'none',border:'none',cursor:'pointer',color:'#DC2626',fontSize:14,padding:'0 4px'}}>✕</button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
+            )}
 
-              {Object.keys(cert).length > 0 && (
-                <div style={{ marginBottom: 20 }}>
-                  <div className="text-xs font-bold text-muted uppercase mb-8" style={{ letterSpacing: '0.5px' }}>AI Certification Scores</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {Object.entries(cert).map(([topic, score]) => (
-                      <div key={topic}>
-                        <div className="flex items-center justify-between mb-4">
-                          <span style={{ fontSize: 13, textTransform: 'capitalize' }}>{topic.replace(/_/g, ' ')}</span>
-                          <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: score >= 80 ? '#D1FAE5' : '#FEF3C7', color: score >= 80 ? '#065F46' : '#92400E' }}>{score}%</span>
-                        </div>
-                        <div style={{ height: 6, background: '#E5E7EB', borderRadius: 3, overflow: 'hidden' }}>
-                          <div style={{ height: '100%', borderRadius: 3, width: `${score}%`, background: score >= 80 ? tokens.success : '#F59E0B' }} />
-                        </div>
+            {/* STEP 3: Confirm */}
+            {step==='confirm' && (
+              <div>
+                <div style={{background:'#D1FAE5',border:'1px solid #6EE7B7',borderRadius:12,padding:16,marginBottom:20}}>
+                  <div className="font-jakarta font-bold mb-10" style={{fontSize:16,color:'#065F46',textAlign:'center'}}>✅ 8 Sessions Selected!</div>
+                  <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                    {selectedSlots.map((s,i)=>(
+                      <div key={s.date} style={{display:'flex',alignItems:'center',gap:10,fontSize:13,color:'#065F46'}}>
+                        <span style={{width:22,height:22,borderRadius:'50%',background:'#065F46',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:800,flexShrink:0}}>{i+1}</span>
+                        <span style={{fontWeight:600}}>{new Date(s.date+'T00:00:00').toLocaleDateString('en-PH',{weekday:'short',month:'long',day:'numeric'})}</span>
+                        <span style={{marginLeft:'auto',fontWeight:600}}>{fmtHour(s.time)}</span>
                       </div>
                     ))}
                   </div>
                 </div>
-              )}
 
-              <div style={{ marginBottom: 20 }}>
-                <div className="text-xs font-bold text-muted uppercase mb-8" style={{ letterSpacing: '0.5px' }}>Credentials</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
                   {[
-                    { label: 'NBI Clearance',      ok: !!t.nbi_clearance_url,    icon: '🪪' },
-                    { label: 'PRC License',         ok: !!t.prc_license_url,      icon: '📄' },
-                    { label: 'Medical Certificate', ok: !!t.medical_cert_url,     icon: '🏥' },
-                    { label: 'Application Form',    ok: !!t.application_form_url, icon: '📋' },
-                  ].map(doc => (
-                    <div key={doc.label} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, background: doc.ok ? '#F0FDF4' : '#FEF2F2', border: `1px solid ${doc.ok ? '#6EE7B7' : '#FCA5A5'}` }}>
-                      <span style={{ fontSize: 16 }}>{doc.icon}</span>
-                      <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{doc.label}</span>
-                      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: doc.ok ? '#D1FAE5' : '#FEE2E2', color: doc.ok ? '#065F46' : '#DC2626' }}>
-                        {doc.ok ? '✓ Verified' : '✗ Missing'}
-                      </span>
+                    ['Tutor',    booking?.profile?.full_name||'—'],
+                    ['Child',    students.find(s=>s.id===form.student_id)?.name||'—'],
+                    ['Subject',  subject||(booking?.specialization||[])[0]||'—'],
+                    ['Mode',     form.session_mode],
+                    ['Payment',  form.payment_method.replace('_',' ')],
+                    ['Total',    `₱${((booking?.approved_rate||booking?.rate_per_session||0)*8).toLocaleString()}`],
+                  ].map(([k,v])=>(
+                    <div key={k} style={{background:'#F9FAFB',borderRadius:8,padding:12}}>
+                      <div className="text-xs text-muted uppercase font-bold mb-4" style={{letterSpacing:'0.5px'}}>{k}</div>
+                      <div className="font-semibold" style={{fontSize:13,textTransform:'capitalize'}}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{background:'#FEF9C3',border:'1px solid #FDE68A',borderRadius:10,padding:'12px 16px',marginTop:16,fontSize:13,color:'#92400E'}}>
+                  ⏳ Your selected date will show as <strong>Pending (yellow)</strong> on the tutor's calendar until they confirm.
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+      {/* ── View Tutor Profile Modal ── */}
+      <Modal open={!!viewTutor} onClose={()=>setViewTutor(null)} title="Tutor Profile"
+        footer={<>
+          <button className="btn btn-ghost" onClick={()=>setViewTutor(null)}>Close</button>
+          <button className="btn btn-primary" onClick={()=>{setBooking(viewTutor);setStep('details');setViewTutor(null);}} disabled={students.length===0}>
+            📅 Book Now
+          </button>
+        </>}>
+        {viewTutor && (
+          <div style={{display:'flex',flexDirection:'column',gap:16}}>
+            {/* Header */}
+            <div style={{display:'flex',alignItems:'center',gap:16,padding:'20px',background:tokens.primaryLight,borderRadius:14}}>
+              <div style={{width:64,height:64,borderRadius:'50%',background:tokens.primary,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,overflow:'hidden'}}>
+                {viewTutor.profile?.avatar_url
+                  ? <img src={viewTutor.profile.avatar_url} alt={viewTutor.profile?.full_name} style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                  : <span style={{color:'#fff',fontWeight:800,fontSize:26}}>{(viewTutor.profile?.full_name||'T').charAt(0)}</span>}
+              </div>
+              <div style={{flex:1}}>
+                <div className="font-jakarta font-extrabold" style={{fontSize:20}}>{viewTutor.profile?.full_name||'Tutor'}</div>
+                <div style={{fontSize:13,color:tokens.mid,marginTop:2}}>{(viewTutor.specialization||[]).map(s=>s.charAt(0).toUpperCase()+s.slice(1)).join(' & ')}</div>
+                <div className="flex gap-8 mt-8">
+                  <span style={{fontSize:11,fontWeight:700,padding:'3px 10px',borderRadius:20,background:'#D1FAE5',color:'#065F46'}}>✓ Verified & Approved</span>
+                  <span style={{fontSize:11,fontWeight:700,padding:'3px 10px',borderRadius:20,background:tokens.primaryLight,color:tokens.primary}}>₱{viewTutor.approved_rate||viewTutor.rate_per_session||0}/session</span>
+                </div>
+              </div>
+            </div>
+
+            {/* About */}
+            {viewTutor.profile?.bio && (
+              <div>
+                <div className="text-xs text-muted uppercase font-bold mb-8" style={{letterSpacing:'0.5px'}}>About</div>
+                <p style={{fontSize:13,color:tokens.mid,lineHeight:1.7,background:'#F9FAFB',borderRadius:10,padding:14}}>{viewTutor.profile.bio}</p>
+              </div>
+            )}
+
+            {/* Key details grid */}
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+              {[
+                ['👨‍🎓 Licensed Teacher', 'PRC Licensed'],
+                ['⏱ Experience', `${viewTutor.years_experience||0} year${viewTutor.years_experience!==1?'s':''}`],
+                ['📍 Location', viewTutor.profile?.location||'—'],
+                ['👤 Gender', viewTutor.profile?.gender||'—'],
+                ['✅ Status', 'Verified & Approved'],
+                ['📚 Subjects', (viewTutor.specialization||[]).map(s=>s.charAt(0).toUpperCase()+s.slice(1)).join(', ')||'—'],
+              ].map(([k,v])=>(
+                <div key={k} style={{background:'#F9FAFB',borderRadius:10,padding:12}}>
+                  <div style={{fontSize:12,color:tokens.muted,marginBottom:4}}>{k}</div>
+                  <div style={{fontSize:13,fontWeight:600}}>{v}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* AI Certification Scores */}
+            {viewTutor.certification_scores && Object.keys(viewTutor.certification_scores).length>0 && (
+              <div>
+                <div className="text-xs text-muted uppercase font-bold mb-10" style={{letterSpacing:'0.5px'}}>AI Certification Scores</div>
+                <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                  {Object.entries(viewTutor.certification_scores).map(([topic,score])=>(
+                    <div key={topic} style={{display:'flex',alignItems:'center',gap:12}}>
+                      <span style={{fontSize:13,fontWeight:600,textTransform:'capitalize',width:100}}>{topic}</span>
+                      <div style={{flex:1,height:8,background:'#E5E7EB',borderRadius:4,overflow:'hidden'}}>
+                        <div style={{height:'100%',borderRadius:4,width:`${score}%`,background:score>=90?tokens.success:score>=70?tokens.primary:'#F59E0B',transition:'width 0.5s'}}/>
+                      </div>
+                      <span style={{fontSize:13,fontWeight:700,color:score>=90?tokens.success:score>=70?tokens.primary:'#F59E0B',width:40,textAlign:'right'}}>{score}%</span>
                     </div>
                   ))}
                 </div>
               </div>
+            )}
 
-              <div>
-                <div className="text-xs font-bold text-muted uppercase mb-8" style={{ letterSpacing: '0.5px' }}>
-                  Parent Reviews {rating ? `(${rating.count})` : ''}
-                </div>
-                {!rating || rating.reviews.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '20px 0', color: tokens.muted, fontSize: 13 }}>
-                    No reviews yet. Be the first to book this tutor!
+            {/* Credentials */}
+            <div>
+              <div className="text-xs text-muted uppercase font-bold mb-10" style={{letterSpacing:'0.5px'}}>Credentials</div>
+              <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                {[
+                  ['🪪','NBI Clearance',    !!viewTutor.nbi_clearance_url],
+                  ['📄','PRC License',       !!viewTutor.prc_license_url],
+                  ['🏥','Medical Certificate',!!viewTutor.medical_cert_url],
+                  ['📋','Application Form',  !!viewTutor.application_form_url],
+                ].map(([icon,label,verified])=>(
+                  <div key={label} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',borderRadius:10,background:verified?'#F0FDF4':'#FEF2F2',border:`1px solid ${verified?'#6EE7B7':'#FECACA'}`}}>
+                    <span style={{fontSize:18}}>{icon}</span>
+                    <span style={{fontSize:13,fontWeight:600,flex:1}}>{label}</span>
+                    <span style={{fontSize:12,fontWeight:700,color:verified?'#065F46':'#DC2626'}}>
+                      {verified?'✓ Verified':'✗ Missing'}
+                    </span>
                   </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {rating.reviews.map((r, i) => {
-                      const starLabel = r.star_rating === 5 ? 'Excellent' : r.star_rating === 4 ? 'Good' : r.star_rating === 3 ? 'Average' : r.star_rating === 2 ? 'Below Average' : 'Poor';
-                      const starBg    = r.star_rating >= 4 ? '#D1FAE5' : r.star_rating === 3 ? '#FEF3C7' : '#FEE2E2';
-                      const starColor = r.star_rating >= 4 ? '#065F46' : r.star_rating === 3 ? '#92400E' : '#DC2626';
-                      return (
-                        <div key={r.id || i} style={{ background: '#F9FAFB', borderRadius: 10, padding: 14, border: `1px solid ${tokens.border}` }}>
-                          <div className="flex items-center justify-between mb-6">
-                            <div className="flex items-center gap-8">
-                              <StarRating value={r.star_rating} size={13} />
-                              <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: starBg, color: starColor }}>{starLabel}</span>
-                            </div>
-                            <span className="text-xs text-muted">
-                              {r.created_at ? new Date(r.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
-                            </span>
-                          </div>
-                          {r.comment && (
-                            <p style={{ fontSize: 13, color: tokens.mid, lineHeight: 1.6, margin: '0 0 6px' }}>"{r.comment}"</p>
-                          )}
-                          <div className="text-xs text-muted">— {r.parent?.full_name || 'Anonymous Parent'}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                ))}
               </div>
             </div>
-          );
-        })()}
+
+            {/* Parent Reviews */}
+            <div>
+              <div className="text-xs text-muted uppercase font-bold mb-10" style={{letterSpacing:'0.5px'}}>Parent Reviews</div>
+              <TutorReviews tutorId={viewTutor.id} />
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

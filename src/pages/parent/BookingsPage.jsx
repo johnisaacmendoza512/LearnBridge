@@ -5,6 +5,7 @@ import EmptyState from '../../components/ui/EmptyState';
 import Spinner from '../../components/ui/Spinner';
 import Modal from '../../components/ui/Modal';
 import FormGroup from '../../components/ui/FormGroup';
+import { supabase } from '../../lib/supabase';
 import { useBookings, calculateCommission } from '../../hooks/useBookings';
 import tokens from '../../lib/tokens';
 
@@ -45,15 +46,31 @@ export default function BookingsPage() {
 
   const [toast,        setToast]        = useState(null);   // {msg, type}
   const [schedModal,   setSchedModal]   = useState(null);   // booking object
+  const [schedList,    setSchedList]    = useState([]);    // 8 session dates for view modal
+  const [loadingSched, setLoadingSched] = useState(false);
+  const [viewSlots,    setViewSlots]    = useState(null);   // booking object for slot list
+  const [bookingSlots, setBookingSlots] = useState([]);     // slots for selected booking
+  const [loadingSlots, setLoadingSlots] = useState(false);
   const [schedForm,    setSchedForm]    = useState({ day1:'', time1:'', day2:'', time2:'' });
   const [savingSched,  setSavingSched]  = useState(false);
   const [confirmModal, setConfirmModal] = useState(null);   // booking object
-  const [feedback, setFeedback] = useState({ indicator:'good', star_rating:5, rating_comment:'' });
+  const [feedback,     setFeedback]     = useState({ topic:'', indicator:'good', star_rating:5, rating_comment:'' });
   const [saving,       setSaving]       = useState(false);
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
+  };
+
+  const fetchBookingSlots = async (bookingId) => {
+    setLoadingSlots(true);
+    const { data } = await supabase
+      .from('booking_slots')
+      .select('*')
+      .eq('booking_id', bookingId)
+      .order('session_number');
+    setBookingSlots(data||[]);
+    setLoadingSlots(false);
   };
 
   const openSchedModal = (b) => {
@@ -89,6 +106,18 @@ export default function BookingsPage() {
     }
   };
 
+  const openSchedView = async (b) => {
+    setSchedModal(b);
+    setLoadingSched(true);
+    const { data } = await supabase
+      .from('booking_schedules')
+      .select('*')
+      .eq('booking_id', b.id)
+      .order('session_num');
+    setSchedList(data||[]);
+    setLoadingSched(false);
+  };
+
   const handleCancel = async (id) => {
     try {
       await updateBookingStatus(id, 'cancelled');
@@ -99,6 +128,7 @@ export default function BookingsPage() {
   };
 
   const handleConfirmComplete = async () => {
+    if (!feedback.topic.trim()) { showToast('Please enter the topic covered.', 'error'); return; }
     setSaving(true);
     try {
       await confirmComplete(confirmModal.id, feedback);
@@ -147,21 +177,13 @@ export default function BookingsPage() {
                     <td style={{ fontSize:13 }}>{b.tutor?.full_name || '—'}</td>
                     <td style={{ fontSize:13, textTransform:'capitalize' }}>{b.subject || '—'}</td>
 
-                    {/* Schedule column */}
-                    <td style={{ fontSize:12 }}>
-                      {hasSched ? (
-                        <div>
-                          <div style={{ color:'#065F46', fontWeight:600 }}>✓ {b.confirmed_day_1} {fmtTime(b.confirmed_time_1)}</div>
-                          {b.confirmed_day_2 && <div style={{ color:'#065F46', fontWeight:600 }}>✓ {b.confirmed_day_2} {fmtTime(b.confirmed_time_2)}</div>}
-                        </div>
-                      ) : hasProposed ? (
-                        <div>
-                          <div style={{ color:'#92400E' }}>⏳ {b.proposed_day_1} {fmtTime(b.proposed_time_1)}</div>
-                          {b.proposed_day_2 && <div style={{ color:'#92400E' }}>⏳ {b.proposed_day_2} {fmtTime(b.proposed_time_2)}</div>}
-                        </div>
-                      ) : (
-                        <span style={{ color:tokens.muted }}>Not set</span>
-                      )}
+                    {/* Schedule column — View button */}
+                    <td>
+                      <button className="btn btn-sm"
+                        style={{background:'#EFF6FF',color:tokens.primary,border:`1px solid ${tokens.primary}30`}}
+                        onClick={async()=>{setViewSlots(b);await fetchBookingSlots(b.id);}}>
+                        📅 View
+                      </button>
                     </td>
 
                     <td className="font-semibold" style={{ fontSize:13 }}>₱{Number(b.total_amount||0).toLocaleString()}</td>
@@ -175,12 +197,15 @@ export default function BookingsPage() {
 
                     <td>
                       <div className="flex gap-6" style={{ flexWrap:'wrap' }}>
-                        {/* Schedule button — confirmed bookings only */}
-                        {b.status === 'confirmed' && (
-                          <button className="btn btn-sm" style={{ background:'#EFF6FF', color:tokens.primary, border:`1px solid ${tokens.primary}30` }} onClick={() => openSchedModal(b)}>
-                            <Icon name="calendar" size={11} color={tokens.primary} />
-                            {b.schedule_status === 'confirmed' ? ' Update' : ' Schedule'}
+                        {/* View Schedule button — show confirmed schedule details */}
+                        {b.status === 'confirmed' && b.scheduled_date && (
+                          <button className="btn btn-sm" style={{ background:'#D1FAE5', color:'#065F46', border:'1px solid #6EE7B7' }}
+                            onClick={() => setSchedModal(b)}>
+                            📅 View Schedule
                           </button>
+                        )}
+                        {b.status === 'confirmed' && !b.scheduled_date && b.schedule_status === 'pending' && (
+                          <span style={{ fontSize:11, color:'#F59E0B', fontWeight:700 }}>⏳ Awaiting tutor</span>
                         )}
                         {/* Confirm+Rate button — tutor marked complete */}
                         {b.status === 'pending_parent_confirm' && (
@@ -204,53 +229,104 @@ export default function BookingsPage() {
         </div>
       )}
 
-      {/* ── Schedule Modal ── */}
+      {/* ── View Schedule Modal ── */}
       <Modal
         open={!!schedModal}
         onClose={() => setSchedModal(null)}
-        title="📅 Propose Session Schedule"
-        footer={<>
-          <button className="btn btn-ghost" onClick={() => setSchedModal(null)}>Cancel</button>
-          <button className="btn btn-primary" onClick={handleProposeSchedule} disabled={savingSched}>
-            {savingSched ? 'Saving...' : '✓ Send Proposal'}
-          </button>
-        </>}
+        title="📅 Confirmed Session Schedule"
+        footer={<button className="btn btn-ghost" onClick={() => setSchedModal(null)}>Close</button>}
       >
         {schedModal && (
           <div>
-            <div style={{ background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:10, padding:'12px 16px', marginBottom:20, fontSize:13, color:'#1D4ED8' }}>
-              ℹ️ Sessions run <strong>twice a week, 1.5 hours each</strong>. Propose your preferred days and times. The tutor will confirm.
+            <div style={{ background:'#D1FAE5', border:'2px solid #6EE7B7', borderRadius:14, padding:24, textAlign:'center', marginBottom:16 }}>
+              <div style={{ fontSize:48, marginBottom:12 }}>✅</div>
+              <div className="font-jakarta font-extrabold mb-8" style={{ fontSize:20, color:'#065F46' }}>Schedule Confirmed!</div>
+              <div style={{ fontSize:16, fontWeight:700, color:'#065F46', marginBottom:4 }}>
+                📅 {schedModal.scheduled_date ? new Date(schedModal.scheduled_date + 'T00:00:00').toLocaleDateString('en-PH', {weekday:'long', month:'long', day:'numeric', year:'numeric'}) : '—'}
+              </div>
+              <div style={{ fontSize:16, fontWeight:700, color:'#065F46' }}>
+                🕐 {schedModal.scheduled_time ? (() => { const [h] = schedModal.scheduled_time.split(':'); const hr = parseInt(h); return `${hr > 12 ? hr-12 : hr || 12}:00 ${hr >= 12 ? 'PM' : 'AM'}`; })() : '—'}
+              </div>
             </div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+              {[
+                ['Child',   schedModal.student?.name    || '—'],
+                ['Tutor',   schedModal.tutor?.full_name || '—'],
+                ['Subject', schedModal.subject          || '—'],
+                ['Mode',    schedModal.session_mode     || '—'],
+                ['Payment', (schedModal.payment_method || '').replace('_',' ')],
+                ['Total',   `₱${Number(schedModal.total_amount||0).toLocaleString()}`],
+              ].map(([k,v]) => (
+                <div key={k} style={{ background:'#F9FAFB', borderRadius:8, padding:12 }}>
+                  <div className="text-xs text-muted uppercase font-bold mb-4" style={{ letterSpacing:'0.5px' }}>{k}</div>
+                  <div className="font-semibold" style={{ fontSize:13, textTransform:'capitalize' }}>{v}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Modal>
 
-            {/* Show current confirmed if exists */}
-            {schedModal.schedule_status === 'confirmed' && schedModal.confirmed_day_1 && (
-              <div style={{ background:'#D1FAE5', border:'1px solid #6EE7B7', borderRadius:10, padding:'12px 16px', marginBottom:16, fontSize:13, color:'#065F46', fontWeight:600 }}>
-                ✅ Current confirmed: {schedModal.confirmed_day_1} {fmtTime(schedModal.confirmed_time_1)}
-                {schedModal.confirmed_day_2 && ` · ${schedModal.confirmed_day_2} ${fmtTime(schedModal.confirmed_time_2)}`}
+      {/* ── View Schedule Slots Modal ── */}
+      <Modal
+        open={!!viewSlots}
+        onClose={()=>setViewSlots(null)}
+        title="📅 Session Schedule"
+        footer={<button className="btn btn-ghost" onClick={()=>setViewSlots(null)}>Close</button>}
+      >
+        {viewSlots&&(
+          <div>
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:13,color:tokens.muted,marginBottom:4}}>
+                {viewSlots.student?.name} · {viewSlots.tutor?.full_name} · <span style={{textTransform:'capitalize'}}>{viewSlots.subject}</span>
+              </div>
+            </div>
+            {loadingSlots ? (
+              <div style={{textAlign:'center',padding:'20px 0',color:tokens.muted}}>Loading...</div>
+            ) : bookingSlots.length===0 ? (
+              <div style={{textAlign:'center',padding:'24px 0'}}>
+                <div style={{fontSize:36,marginBottom:8}}>📅</div>
+                <div style={{fontWeight:600,fontSize:14,marginBottom:4}}>No schedule yet</div>
+                <p style={{fontSize:13,color:tokens.muted}}>Your tutor hasn't confirmed the schedule yet.</p>
+              </div>
+            ) : (
+              <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+                  <div className="font-jakarta font-bold" style={{fontSize:15}}>
+                    {bookingSlots.length} of 8 Sessions
+                  </div>
+                  <span style={{fontSize:12,fontWeight:700,padding:'3px 10px',borderRadius:20,
+                    background:viewSlots.schedule_status==='confirmed'?'#D1FAE5':'#FEF9C3',
+                    color:viewSlots.schedule_status==='confirmed'?'#065F46':'#92400E'}}>
+                    {viewSlots.schedule_status==='confirmed'?'✓ Confirmed':'⏳ Pending'}
+                  </span>
+                </div>
+                {bookingSlots.map((slot,i)=>{
+                  const [h] = (slot.slot_time||'').split(':');
+                  const hr = parseInt(h);
+                  const timeLabel = slot.slot_time ? `${hr>12?hr-12:hr||12}:00 ${hr>=12?'PM':'AM'}` : '—';
+                  const dateLabel = slot.slot_date ? new Date(slot.slot_date+'T00:00:00').toLocaleDateString('en-PH',{weekday:'short',month:'long',day:'numeric',year:'numeric'}) : '—';
+                  return (
+                    <div key={slot.id} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 16px',borderRadius:10,
+                      background:slot.status==='confirmed'?'#F0FDF4':'#FFFBEB',
+                      border:`1.5px solid ${slot.status==='confirmed'?'#6EE7B7':'#FDE68A'}`}}>
+                      <span style={{width:28,height:28,borderRadius:'50%',flexShrink:0,
+                        background:slot.status==='confirmed'?'#22C55E':'#F59E0B',
+                        color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:800}}>
+                        {i+1}
+                      </span>
+                      <div style={{flex:1}}>
+                        <div style={{fontWeight:600,fontSize:13}}>{dateLabel}</div>
+                        <div style={{fontSize:12,color:tokens.muted}}>{timeLabel}</div>
+                      </div>
+                      <span style={{fontSize:11,fontWeight:700,color:slot.status==='confirmed'?'#065F46':'#D97706'}}>
+                        {slot.status==='confirmed'?'✓ Confirmed':'⏳ Pending'}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             )}
-
-            <div style={{ marginBottom:16 }}>
-              <div className="font-semibold mb-8" style={{ fontSize:13 }}>Session Day 1 <span style={{ color:'#DC2626' }}>*</span></div>
-              <div className="grid-2">
-                <select className="select" value={schedForm.day1} onChange={e => setSchedForm(f => ({ ...f, day1:e.target.value }))}>
-                  <option value="">Select day</option>
-                  {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-                <input className="input" type="time" value={schedForm.time1} onChange={e => setSchedForm(f => ({ ...f, time1:e.target.value }))} />
-              </div>
-            </div>
-
-            <div>
-              <div className="font-semibold mb-8" style={{ fontSize:13 }}>Session Day 2 <span className="text-xs text-muted">(optional)</span></div>
-              <div className="grid-2">
-                <select className="select" value={schedForm.day2} onChange={e => setSchedForm(f => ({ ...f, day2:e.target.value }))}>
-                  <option value="">Select day</option>
-                  {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-                <input className="input" type="time" value={schedForm.time2} onChange={e => setSchedForm(f => ({ ...f, time2:e.target.value }))} />
-              </div>
-            </div>
           </div>
         )}
       </Modal>
@@ -262,7 +338,7 @@ export default function BookingsPage() {
         title="✅ Confirm Session & Rate Tutor"
         footer={<>
           <button className="btn btn-ghost" onClick={() => setConfirmModal(null)}>Cancel</button>
-          <button className="btn btn-primary" onClick={handleConfirmComplete} disabled={saving}>
+          <button className="btn btn-primary" onClick={handleConfirmComplete} disabled={saving || !feedback.topic}>
             {saving ? 'Saving...' : '✓ Confirm & Submit'}
           </button>
         </>}
@@ -272,6 +348,9 @@ export default function BookingsPage() {
             <div style={{ background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:10, padding:'12px 16px', marginBottom:20, fontSize:13, color:'#1D4ED8' }}>
               ℹ️ The tutor marked this booking as complete. Please confirm and rate.
             </div>
+            <FormGroup label="Topic Covered">
+              <input className="input" placeholder="e.g. Unlike Fractions..." value={feedback.topic} onChange={e => setFeedback(f => ({ ...f, topic:e.target.value }))} />
+            </FormGroup>
             <FormGroup label="Child's Performance">
               <div className="flex gap-8">
                 {[

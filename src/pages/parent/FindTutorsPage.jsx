@@ -192,6 +192,9 @@ export default function FindTutorsPage() {
     try {
       // Use first slot as primary scheduled_date for the booking record
       const firstSlot = selectedSlots[0];
+      // Build timeStr from hour for each slot
+      const firstTimeStr = firstSlot.timeStr;
+
       const data = await createBooking({
         tutor_id:       booking.id,
         student_id:     form.student_id,
@@ -200,22 +203,32 @@ export default function FindTutorsPage() {
         payment_method: form.payment_method,
         total_amount:   (booking.approved_rate||booking.rate_per_session||0)*8,
         scheduled_date: firstSlot.date,
-        scheduled_time: firstSlot.timeStr,
+        scheduled_time: firstTimeStr,
         schedule_status:'pending',
       });
 
-      // Insert all 8 slots
+      // Insert all 8 slots into booking_slots (shows on tutor calendar)
       if (data?.id) {
-        const slotsToInsert = selectedSlots.map((s,i)=>({
-          tutor_id:       booking.id,
-          booking_id:     data.id,
-          slot_date:      s.date,
-          slot_time:      s.timeStr,
-          session_number: i+1,
-          status:         'pending',
+        const slotsToInsert = selectedSlots.map(s=>({
+          tutor_id:   booking.id,
+          booking_id: data.id,
+          slot_date:  s.date,
+          slot_time:  s.timeStr,
+          status:     'pending',
         }));
         const { error: slotError } = await supabase.from('booking_slots').insert(slotsToInsert);
         if (slotError) console.error('Slot insert error:', slotError.message);
+
+        // Insert booking_schedules (shows in parent view schedule)
+        const scheduleRows = selectedSlots.map((s,i)=>({
+          booking_id:   data.id,
+          session_num:  i+1,
+          session_date: s.date,
+          session_time: s.timeStr,
+          status:       'upcoming',
+        }));
+        const { error: schedErr } = await supabase.from('booking_schedules').insert(scheduleRows);
+        if (schedErr) console.error('Schedule insert error:', schedErr.message);
       }
 
       setBooking(null);

@@ -41,7 +41,8 @@ export default function TutorCalendarPage() {
   const [toast,    setToast]    = useState(null);
   const [selDate,  setSelDate]  = useState(null); // clicked date string
   const [dayModal, setDayModal] = useState(null); // array of slots for that day
-  const [saving,   setSaving]   = useState(false);
+  const [saving,      setSaving]      = useState(false);
+  const [rejectModal, setRejectModal] = useState(null); // slot to reject
 
   const showToast = (msg,type='success') => { setToast({msg,type}); setTimeout(()=>setToast(null),3500); };
 
@@ -99,18 +100,26 @@ export default function TutorCalendarPage() {
     finally { setSaving(false); }
   };
 
-  const handleReject = async (slot) => {
-    if (!window.confirm('Reject this booking request?')) return;
+  const handleReject = (slot) => {
+    setRejectModal(slot); // open confirm modal instead of window.confirm
+  };
+
+  const confirmReject = async () => {
+    const slot = rejectModal;
+    setRejectModal(null);
     setSaving(true);
     try {
-      const {error:slotErr} = await supabase.from('booking_slots').update({status:'rejected'}).eq('id',slot.id);
+      const {error:slotErr} = await supabase.from('booking_slots')
+        .update({status:'rejected'})
+        .eq('id', slot.id);
       if (slotErr) throw slotErr;
-      const {error:bookErr} = await supabase.from('bookings').update({
-        schedule_status: 'rejected',
-        status:          'rejected',
-      }).eq('id', slot.booking_id);
-      if (bookErr) throw bookErr;
-      showToast('Booking rejected.');
+
+      // Keep booking active — only this slot is rejected
+      await supabase.from('bookings')
+        .update({ schedule_status: 'pending' })
+        .eq('id', slot.booking_id);
+
+      showToast('Session rejected. The parent will be notified to pick a new date.');
       await fetchSlots();
       setDayModal(null);
     } catch(e) { showToast(e.message,'error'); }
@@ -288,6 +297,33 @@ export default function TutorCalendarPage() {
             )}
           </div>
         )}
+      </Modal>
+      {/* ── Reject Confirm Modal ── */}
+      <Modal
+        open={!!rejectModal}
+        onClose={()=>setRejectModal(null)}
+        title="❌ Reject Session"
+        footer={<>
+          <button className="btn btn-ghost" onClick={()=>setRejectModal(null)}>Cancel</button>
+          <button className="btn btn-danger" onClick={confirmReject} disabled={saving}>
+            {saving ? 'Rejecting...' : 'Yes, Reject This Session'}
+          </button>
+        </>}
+      >
+        <div style={{textAlign:'center',padding:'8px 0'}}>
+          <div style={{fontSize:48,marginBottom:16}}>❌</div>
+          <div className="font-jakarta font-bold mb-8" style={{fontSize:18}}>Reject This Session?</div>
+          <p style={{fontSize:14,color:tokens.muted,lineHeight:1.7,marginBottom:16}}>
+            Only this specific session will be rejected. The booking stays active and the parent will be asked to pick a new date for this session only.
+          </p>
+          {rejectModal&&(
+            <div style={{background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:10,padding:'12px 16px',fontSize:13,fontWeight:600,color:'#DC2626'}}>
+              📅 {rejectModal.slot_date ? new Date(rejectModal.slot_date+'T00:00:00').toLocaleDateString('en-PH',{weekday:'long',month:'long',day:'numeric',year:'numeric'}) : '—'}
+              {' · '}
+              {rejectModal.slot_time ? (()=>{const [h]=rejectModal.slot_time.split(':');const hr=parseInt(h);return `${hr>12?hr-12:hr||12}:00 ${hr>=12?'PM':'AM'}`;})() : '—'}
+            </div>
+          )}
+        </div>
       </Modal>
     </div>
   );

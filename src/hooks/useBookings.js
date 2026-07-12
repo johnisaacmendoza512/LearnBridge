@@ -103,7 +103,7 @@ export function useBookings() {
       const newBalance = Number(tutorRow?.wallet_balance || 0) - commission;
       await supabase.from('tutors').update({ wallet_balance: newBalance }).eq('id', tutorId);
       await supabase.from('wallet_transactions').insert({
-        tutor_id:      tutorId,
+        user_id:       tutorId,
         type:          'commission_deduction',
         amount:        -commission,
         balance_after: newBalance,

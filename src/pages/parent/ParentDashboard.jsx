@@ -1,314 +1,247 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
-import { useParentDashboard } from '../../hooks/useParentDashboard';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../context/AuthContext';
+import { useBookings } from '../../hooks/useBookings';
+import { useStudents } from '../../hooks/useStudents';
+import { createTopUpLink, getPaymentLinkStatus } from '../../lib/paymongo';
 import StatCard from '../../components/ui/StatCard';
-import PerformanceBadge from '../../components/ui/PerformanceBadge';
-import Icon from '../../components/ui/Icon';
-import EmptyState from '../../components/ui/EmptyState';
+import Modal from '../../components/ui/Modal';
 import Spinner from '../../components/ui/Spinner';
-import FormGroup from '../../components/ui/FormGroup';
 import tokens from '../../lib/tokens';
 
-export default function ParentDashboard() {
-  const { profile, user } = useAuth();
-  const navigate = useNavigate();
-  const { stats, upcomingSessions, recentFeedback, loading, error } = useParentDashboard();
-
-  const [activeTab, setActiveTab] = useState('overview');
-  const [editingProfile, setEditingProfile] = useState(false);
-  const [profileForm, setProfileForm] = useState({
-    full_name:   profile?.full_name   || '',
-    email:       profile?.email       || '',
-    contact:     profile?.contact     || '',
-    address:     profile?.address     || '',
-  });
-  const [savingProfile, setSavingProfile] = useState(false);
-  const [profileSuccess, setProfileSuccess] = useState('');
-
-  const firstName = profile?.full_name?.split(' ')[0] || 'Parent';
-  const setF = (k, v) => setProfileForm(f => ({ ...f, [k]: v }));
-
-  const handleSaveProfile = async () => {
-    setSavingProfile(true);
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          full_name: profileForm.full_name,
-          contact:   profileForm.contact,
-          address:   profileForm.address,
-        })
-        .eq('id', user.id);
-      if (error) throw error;
-      setProfileSuccess('Profile updated successfully!');
-      setEditingProfile(false);
-      setTimeout(() => setProfileSuccess(''), 3000);
-    } catch (e) {
-      alert('Failed to save: ' + e.message);
-    } finally {
-      setSavingProfile(false);
-    }
-  };
-
-  if (loading) return <Spinner dark size={32} />;
-  if (error) return (
-    <div className="card p-24 text-center">
-      <p className="text-sm" style={{ color: tokens.danger }}>Failed to load dashboard: {error}</p>
-      <button className="btn btn-primary mt-12" onClick={() => window.location.reload()}>Retry</button>
+function Toast({ msg, type, onClose }) {
+  if (!msg) return null;
+  const bg = type==='error'?'#FEE2E2':'#D1FAE5', color=type==='error'?'#DC2626':'#065F46';
+  return (
+    <div style={{position:'fixed',top:24,right:24,zIndex:99999,background:bg,borderRadius:12,padding:'14px 20px',fontSize:14,color,fontWeight:600,boxShadow:'0 4px 20px rgba(0,0,0,.12)',display:'flex',alignItems:'center',gap:10,maxWidth:380}}>
+      <span>{type==='error'?'❌':'✅'}</span><span style={{flex:1}}>{msg}</span>
+      <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',color,fontSize:16,padding:0}}>✕</button>
     </div>
   );
+}
+
+export default function ParentDashboard() {
+  const { user, profile } = useAuth();
+  const { bookings } = useBookings();
+  const { students } = useStudents();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  const [walletBalance, setWalletBalance] = useState(0);
+  const [transactions,  setTransactions]  = useState([]);
+  const [loadingWallet, setLoadingWallet] = useState(true);
+  const [topUpModal,    setTopUpModal]    = useState(false);
+  const [topUpAmount,   setTopUpAmount]   = useState('');
+  const [topping,       setTopping]       = useState(false);
+  const [toast,         setToast]         = useState(null);
+
+  const showToast = (msg, type='success') => { setToast({msg,type}); setTimeout(()=>setToast(null),4000); };
+
+  const fetchWallet = async () => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('wallet_balance')
+      .eq('id', user.id)
+      .single();
+    setWalletBalance(Number(data?.wallet_balance || 0));
+
+    const { data: txns } = await supabase
+      .from('wallet_transactions')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(5);
+    setTransactions(txns || []);
+    setLoadingWallet(false);
+  };
+
+  // Check if returning from PayMongo top up
+  useEffect(() => {
+    const verifyTopUp = async () => {
+      const linkId   = searchParams.get('link_id');
+      const topup    = searchParams.get('topup');
+      const amtParam = parseFloat(searchParams.get('amount') || '0');
+      const uidParam = searchParams.get('user_id');
+
+      if (!linkId || topup !== 'success') { fetchWallet(); return; }
+
+      try {
+        // Check if already processed to avoid double credit
+        const { data: existing } = await supabase
+          .from('wallet_transactions')
+          .select('id')
+          .eq('paymongo_link_id', linkId)
+          .eq('status', 'completed')
+          .maybeSingle();
+
+        if (!existing) {
+          const creditUserId = uidParam || user.id;
+          const creditAmount = amtParam || 0;
+
+          // Add to wallet
+          await supabase.rpc('increment_wallet', { user_id: creditUserId, amount: creditAmount });
+          await supabase.from('wallet_transactions').insert({
+            user_id:          creditUserId,
+            type:             'topup',
+            amount:           creditAmount,
+            description:      'Wallet top up via PayMongo',
+            status:           'completed',
+            paymongo_link_id: linkId,
+          });
+          showToast(`✅ ₱${creditAmount.toFixed(2)} added to your wallet!`);
+        } else {
+          showToast('Wallet already credited for this payment.');
+        }
+      } catch(e) {
+        console.error('Top up verify error:', e);
+        showToast('Could not verify payment. Contact support.', 'error');
+      }
+
+      // Clean URL
+      window.history.replaceState({}, '', '/dashboard');
+      fetchWallet();
+    };
+
+    verifyTopUp();
+  }, []);
+
+  const handleTopUp = async () => {
+    const amount = parseFloat(topUpAmount);
+    if (!amount || amount < 1) { showToast('Minimum top up is ₱1.', 'error'); return; }
+    setTopping(true);
+    try {
+      const { linkId, checkoutUrl } = await createTopUpLink({ amount, userId: user.id });
+
+      // Save pending transaction
+      await supabase.from('wallet_transactions').insert({
+        user_id:          user.id,
+        type:             'topup',
+        amount,
+        description:      'Wallet top up via PayMongo',
+        status:           'pending',
+        paymongo_link_id: linkId,
+      });
+
+      // Redirect to PayMongo
+      window.location.href = `${checkoutUrl}?success_url=${encodeURIComponent(`https://learnbridge.site/dashboard?link_id=${linkId}&type=topup`)}`;
+    } catch(e) {
+      showToast(e.message, 'error');
+    } finally { setTopping(false); }
+  };
+
+  const active    = bookings.filter(b => b.status === 'confirmed').length;
+  const pending   = bookings.filter(b => b.status === 'pending').length;
+  const completed = bookings.filter(b => b.status === 'completed').length;
 
   return (
     <div className="fade-in">
+      <Toast msg={toast?.msg} type={toast?.type} onClose={()=>setToast(null)}/>
+
       <div className="mb-24">
-        <h2 className="font-jakarta font-extrabold" style={{ fontSize: 22 }}>
-          Good {getGreeting()}, {firstName} 👋
+        <h2 className="font-jakarta font-extrabold" style={{fontSize:24}}>
+          Welcome back, {profile?.full_name?.split(' ')[0] || 'Parent'} 👋
         </h2>
-        <p className="text-sm text-muted mt-4">Here's an overview of your children's learning progress.</p>
+        <p className="text-sm text-muted mt-4">Manage your children's learning journey.</p>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-8 mb-24">
-        {[
-          { key: 'overview', label: '📊 Overview' },
-          { key: 'profile',  label: '👤 My Profile' },
-        ].map(tab => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className="btn"
-            style={{
-              background: activeTab === tab.key ? tokens.primary : '#fff',
-              color:      activeTab === tab.key ? '#fff' : tokens.mid,
-              border:     `1.5px solid ${activeTab === tab.key ? tokens.primary : tokens.border}`,
-              fontWeight: 600,
-            }}
-          >
-            {tab.label}
+      {/* Wallet card */}
+      <div style={{background:`linear-gradient(135deg, ${tokens.primary}, #6366F1)`,borderRadius:16,padding:'24px 28px',marginBottom:24,color:'#fff',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+        <div>
+          <div style={{fontSize:13,opacity:0.85,marginBottom:4}}>💳 Wallet Balance</div>
+          {loadingWallet ? (
+            <Spinner size={24}/>
+          ) : (
+            <div style={{fontSize:36,fontWeight:900}}>₱{walletBalance.toLocaleString('en-PH',{minimumFractionDigits:2})}</div>
+          )}
+          <div style={{fontSize:12,opacity:0.75,marginTop:4}}>Available for session payments</div>
+        </div>
+        <button onClick={()=>setTopUpModal(true)}
+          style={{background:'rgba(255,255,255,0.2)',border:'2px solid rgba(255,255,255,0.4)',borderRadius:12,padding:'12px 24px',color:'#fff',fontWeight:700,fontSize:14,cursor:'pointer',backdropFilter:'blur(4px)'}}>
+          + Top Up
+        </button>
+      </div>
+
+      {/* Stats */}
+      <div className="grid-3 mb-24">
+        <StatCard label="Active Sessions"   value={active}            icon="book"      color={tokens.primary}/>
+        <StatCard label="Pending Bookings"  value={pending}           icon="clock"     color="#F59E0B"/>
+        <StatCard label="Children"          value={students.length}   icon="users"     color={tokens.success}/>
+      </div>
+
+      {/* Recent transactions */}
+      <div className="card" style={{overflow:'hidden'}}>
+        <div style={{padding:'16px 24px',borderBottom:`1px solid ${tokens.border}`,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <div className="font-jakarta font-bold" style={{fontSize:15}}>Recent Wallet Activity</div>
+        </div>
+        {loadingWallet ? (
+          <div style={{textAlign:'center',padding:'24px 0'}}><Spinner dark size={24}/></div>
+        ) : transactions.length === 0 ? (
+          <div style={{textAlign:'center',padding:'32px 0',color:tokens.muted,fontSize:13}}>
+            No wallet activity yet. Top up to get started!
+          </div>
+        ) : (
+          <div style={{padding:'8px 0'}}>
+            {transactions.map(t=>(
+              <div key={t.id} style={{display:'flex',alignItems:'center',gap:14,padding:'12px 24px',borderBottom:`1px solid ${tokens.border}`}}>
+                <div style={{width:36,height:36,borderRadius:10,background:t.type==='topup'?'#D1FAE5':t.type==='deduction'?'#FEE2E2':'#EFF6FF',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>
+                  {t.type==='topup'?'💰':t.type==='deduction'?'💳':'📤'}
+                </div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:600}}>{t.description||t.type}</div>
+                  <div style={{fontSize:11,color:tokens.muted}}>{new Date(t.created_at).toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'})}</div>
+                </div>
+                <div style={{fontSize:14,fontWeight:800,color:t.type==='topup'?'#065F46':t.type==='deduction'?'#DC2626':tokens.primary}}>
+                  {t.type==='topup'?'+':'−'}₱{Number(t.amount).toLocaleString('en-PH',{minimumFractionDigits:2})}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Top Up Modal */}
+      <Modal open={topUpModal} onClose={()=>setTopUpModal(false)} title="💳 Top Up Wallet"
+        footer={<>
+          <button className="btn btn-ghost" onClick={()=>setTopUpModal(false)}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleTopUp} disabled={topping||!topUpAmount}>
+            {topping?'Redirecting to PayMongo...':'Pay via PayMongo →'}
           </button>
-        ))}
-      </div>
+        </>}>
+        <div>
+          <p className="text-sm text-muted mb-20" style={{lineHeight:1.7}}>
+            Add funds to your LearnBridge wallet. You'll be redirected to PayMongo to pay securely via GCash, Maya, or Credit Card.
+          </p>
 
-      {/* ── OVERVIEW TAB ── */}
-      {activeTab === 'overview' && (
-        <>
-          {/* Stats */}
-          <div className="grid-4 mb-24">
-            <StatCard label="Active Children"   value={stats.children}        icon="users"    accent="primary"   />
-            <StatCard label="Upcoming Sessions" value={stats.upcoming}        icon="calendar" accent="secondary" />
-            <StatCard label="Hours This Month"  value={stats.hoursThisMonth}  icon="book"     accent="teal"      />
-            <StatCard label="Recent Feedback"   value={recentFeedback.length} icon="star"     accent="coral"     />
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
-            {/* Upcoming Sessions */}
-            <div className="card">
-              <div className="card-header">
-                <h3 className="font-jakarta font-bold" style={{ fontSize: 15 }}>Upcoming Sessions</h3>
-              </div>
-              {upcomingSessions.length === 0 ? (
-                <EmptyState icon="📅" title="No upcoming sessions" description="Book a tutor to get started." />
-              ) : (
-                upcomingSessions.map((s, i) => (
-                  <div key={s.id} style={{
-                    padding: '14px 0',
-                    borderBottom: i < upcomingSessions.length - 1 ? `1px solid ${tokens.border}` : 'none',
-                    display: 'flex', alignItems: 'flex-start', gap: 12,
-                  }}>
-                    <div style={{
-                      width: 40, height: 40, borderRadius: 10, flexShrink: 0,
-                      background: tokens.primaryLight,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    }}>
-                      <Icon name="calendar" size={16} color={tokens.primary} />
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div className="font-semibold" style={{ fontSize: 13 }}>
-                        {s.booking?.student?.name} · {s.booking?.subject}
-                      </div>
-                      <div className="text-xs text-muted mt-2">
-                        {s.booking?.tutor?.full_name} · {formatDate(s.scheduled_date)} at {formatTime(s.scheduled_time)}
-                      </div>
-                      <div className="text-xs mt-2" style={{ color: tokens.muted, textTransform: 'capitalize' }}>
-                        {s.booking?.session_mode} · Session {s.session_number}/8
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-
-            {/* Recent Feedback */}
-            <div className="card">
-              <div className="card-header">
-                <h3 className="font-jakarta font-bold" style={{ fontSize: 15 }}>Recent Tutor Feedback</h3>
-              </div>
-              {recentFeedback.length === 0 ? (
-                <EmptyState icon="💬" title="No feedback yet" description="Feedback appears here after sessions are completed." />
-              ) : (
-                recentFeedback.map((f, i) => (
-                  <div key={f.id} style={{
-                    padding: '14px 0',
-                    borderBottom: i < recentFeedback.length - 1 ? `1px solid ${tokens.border}` : 'none',
-                  }}>
-                    <div className="flex items-center justify-between mb-6">
-                      <div className="font-semibold" style={{ fontSize: 13 }}>
-                        {f.booking?.student?.name} · {f.topic_covered || 'Topic N/A'}
-                      </div>
-                      {f.performance_indicator && <PerformanceBadge value={f.performance_indicator} />}
-                    </div>
-                    <div className="text-xs text-muted mb-4">
-                      by {f.booking?.tutor?.full_name} on {formatDate(f.scheduled_date)}
-                    </div>
-                    {f.tutor_comments && (
-                      <p style={{ fontSize: 12, color: tokens.mid, lineHeight: 1.6 }}>{f.tutor_comments}</p>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Quick Actions */}
-          <div className="card p-24">
-            <h3 className="font-jakarta font-bold mb-16" style={{ fontSize: 15 }}>Quick Actions</h3>
-            <div className="grid-3">
-              {[
-                { label: 'Add Child Profile', icon: 'plus',   desc: 'Register another learner',       path: '/my-children' },
-                { label: 'Browse Tutors',     icon: 'search', desc: 'Find a verified tutor',          path: '/find-tutors' },
-                { label: 'View Progress',     icon: 'chart',  desc: 'Track performance over time',    path: '/progress'    },
-              ].map(({ label, icon, desc, path }) => (
-                <button
-                  key={label}
-                  className="btn btn-ghost"
-                  style={{ flexDirection: 'column', alignItems: 'flex-start', padding: '16px', height: 'auto', textAlign: 'left', border: `1px solid ${tokens.border}`, borderRadius: 12 }}
-                  onClick={() => navigate(path)}
-                >
-                  <div style={{ width: 36, height: 36, borderRadius: 8, background: tokens.primaryLight, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
-                    <Icon name={icon} size={16} color={tokens.primary} />
-                  </div>
-                  <div className="font-semibold" style={{ fontSize: 13, marginBottom: 4 }}>{label}</div>
-                  <div className="text-xs text-muted">{desc}</div>
+          {/* Quick amounts */}
+          <div style={{marginBottom:16}}>
+            <div style={{fontSize:12,color:tokens.muted,marginBottom:8,fontWeight:600}}>Quick amounts:</div>
+            <div className="flex gap-8">
+              {[8, 50, 100, 500].map(a=>(
+                <button key={a} type="button" onClick={()=>setTopUpAmount(String(a))}
+                  style={{flex:1,padding:'10px 8px',borderRadius:10,border:`2px solid ${topUpAmount===String(a)?tokens.primary:tokens.border}`,background:topUpAmount===String(a)?tokens.primaryLight:'#FAFAFA',color:topUpAmount===String(a)?tokens.primary:tokens.mid,fontWeight:700,fontSize:13,cursor:'pointer'}}>
+                  ₱{a}
                 </button>
               ))}
             </div>
           </div>
-        </>
-      )}
 
-      {/* ── PROFILE TAB ── */}
-      {activeTab === 'profile' && (
-        <div className="card p-28" style={{ maxWidth: 600 }}>
-          <div className="flex items-center justify-between mb-24">
-            <h3 className="font-jakarta font-bold" style={{ fontSize: 18 }}>My Profile</h3>
-            <button
-              className="btn btn-outline btn-sm"
-              onClick={() => {
-                setProfileForm({
-                  full_name: profile?.full_name || '',
-                  email:     profile?.email     || '',
-                  contact:   profile?.contact   || '',
-                  address:   profile?.address   || '',
-                });
-                setEditingProfile(!editingProfile);
-              }}
-            >
-              <Icon name="edit" size={13} /> {editingProfile ? 'Cancel' : 'Edit'}
-            </button>
+          {/* Custom amount */}
+          <div>
+            <div style={{fontSize:12,color:tokens.muted,marginBottom:6,fontWeight:600}}>Or enter custom amount:</div>
+            <div style={{position:'relative'}}>
+              <span style={{position:'absolute',left:14,top:'50%',transform:'translateY(-50%)',fontWeight:700,color:tokens.mid}}>₱</span>
+              <input className="input" type="number" min="1" placeholder="0.00"
+                value={topUpAmount} onChange={e=>setTopUpAmount(e.target.value)}
+                style={{paddingLeft:32}}/>
+            </div>
           </div>
 
-          {profileSuccess && (
-            <div style={{ background: '#D1FAE5', border: '1px solid #6EE7B7', borderRadius: 10, padding: '10px 16px', marginBottom: 16, fontSize: 13, color: '#065F46', fontWeight: 600 }}>
-              ✅ {profileSuccess}
-            </div>
-          )}
-
-          {editingProfile ? (
-            <>
-              <FormGroup label="Full Name">
-                <input
-                  className="input"
-                  value={profileForm.full_name}
-                  onChange={e => setF('full_name', e.target.value)}
-                  placeholder="Your full name"
-                />
-              </FormGroup>
-              <FormGroup label="Email Address" hint="Email cannot be changed here.">
-                <input
-                  className="input"
-                  value={profileForm.email}
-                  disabled
-                  style={{ background: '#F9FAFB', color: tokens.muted, cursor: 'not-allowed' }}
-                />
-              </FormGroup>
-              <FormGroup label="Contact Number">
-                <input
-                  className="input"
-                  value={profileForm.contact}
-                  onChange={e => setF('contact', e.target.value)}
-                  placeholder="e.g. 09XX XXX XXXX"
-                />
-              </FormGroup>
-              <FormGroup label="Address">
-                <textarea
-                  className="textarea"
-                  value={profileForm.address}
-                  onChange={e => setF('address', e.target.value)}
-                  placeholder="e.g. 123 Rizal St., Quezon City"
-                  style={{ minHeight: 72 }}
-                />
-              </FormGroup>
-              <button
-                className="btn btn-primary btn-full"
-                onClick={handleSaveProfile}
-                disabled={savingProfile}
-              >
-                {savingProfile ? <Spinner /> : <><Icon name="check" size={13} /> Save Changes</>}
-              </button>
-            </>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              {[
-                ['Full Name',       profile?.full_name || '—'],
-                ['Email Address',   profile?.email     || '—'],
-                ['Contact Number',  profile?.contact   || 'Not set'],
-                ['Address',         profile?.address   || 'Not set'],
-                ['Role',            'Parent'],
-                ['Member Since',    profile?.created_at
-                  ? new Date(profile.created_at).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })
-                  : '—'],
-              ].map(([k, v]) => (
-                <div key={k} style={{ background: '#F9FAFB', borderRadius: 10, padding: 14 }}>
-                  <div className="text-xs text-muted uppercase font-bold mb-4" style={{ letterSpacing: '0.5px' }}>{k}</div>
-                  <div className="font-semibold" style={{ fontSize: 13 }}>{v}</div>
-                </div>
-              ))}
-            </div>
-          )}
+          <div style={{background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:10,padding:'10px 14px',marginTop:16,fontSize:12,color:'#1D4ED8',lineHeight:1.6}}>
+            ℹ️ Each session costs ₱1 × 8 sessions = <strong>₱8 per booking</strong>. Your wallet balance will be deducted automatically after both you and the tutor confirm the sessions.
+          </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
-}
-
-function getGreeting() {
-  const h = new Date().getHours();
-  if (h < 12) return 'morning';
-  if (h < 18) return 'afternoon';
-  return 'evening';
-}
-
-function formatDate(dateStr) {
-  if (!dateStr) return '—';
-  return new Date(dateStr).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
-}
-
-function formatTime(timeStr) {
-  if (!timeStr) return '—';
-  const [h, m] = timeStr.split(':');
-  const date = new Date();
-  date.setHours(+h, +m);
-  return date.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit', hour12: true });
 }

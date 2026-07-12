@@ -4,20 +4,24 @@ import { useAuth } from '../context/AuthContext';
 
 export function useAdminData() {
   const { user, profile } = useAuth();
-  const [stats,       setStats]       = useState(null);
-  const [tutors,      setTutors]      = useState([]);
-  const [allUsers,    setAllUsers]    = useState([]);
-  const [allSessions, setAllSessions] = useState([]);
-  const [allTxns,     setAllTxns]     = useState([]);
-  const [loading,     setLoading]     = useState(true);
-  const [error,       setError]       = useState(null);
+  const [stats,          setStats]          = useState(null);
+  const [tutors,         setTutors]         = useState([]);
+  const [pendingParents, setPendingParents] = useState([]);
+  const [allUsers,       setAllUsers]       = useState([]);
+  const [allSessions,    setAllSessions]    = useState([]);
+  const [allTxns,        setAllTxns]        = useState([]);
+  const [platformEarnings, setPlatformEarnings] = useState([]);
+  const [totalCommission,  setTotalCommission]  = useState(0);
+  const [loading,        setLoading]        = useState(true);
+  const [error,          setError]          = useState(null);
 
   const fetchAll = useCallback(async () => {
     if (!user || profile?.role !== 'admin') return;
     setLoading(true);
     setError(null);
     try {
-      // Tutors with full profile
+
+      // ── Tutors ────────────────────────────────────────────────────────
       const { data: tutorRows, error: tErr } = await supabase
         .from('tutors')
         .select(`
@@ -31,15 +35,35 @@ export function useAdminData() {
       if (tErr) throw tErr;
       setTutors(tutorRows || []);
 
-      // All user profiles
-      const { data: users, error: uErr } = await supabase
+      // ── Pending parents (for verification page) ───────────────────────
+      const { data: ppRows, error: ppErr } = await supabase
         .from('profiles')
-        .select('id, full_name, email, role, location, gender, avatar_url, created_at')
+        .select('*')
+        .eq('role', 'parent')
+        .eq('status', 'pending')
         .order('created_at', { ascending: false });
-      if (uErr) throw uErr;
-      setAllUsers(users || []);
+      if (ppErr) throw ppErr;
+      setPendingParents(ppRows || []);
 
-      // All sessions grouped — fetch bookings with their sessions
+      // ── All users for Users page (approved parents + tutors + admins) ─
+      const { data: approvedParents, error: apErr } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('role', 'parent')
+        .eq('status', 'approved')
+        .order('created_at', { ascending: false });
+      if (apErr) throw apErr;
+
+      const { data: nonParents, error: npErr } = await supabase
+        .from('profiles')
+        .select('*')
+        .neq('role', 'parent')
+        .order('created_at', { ascending: false });
+      if (npErr) throw npErr;
+
+      setAllUsers([...(nonParents || []), ...(approvedParents || [])]);
+
+      // ── Sessions ──────────────────────────────────────────────────────
       const { data: sessions, error: sErr } = await supabase
         .from('sessions')
         .select(`
@@ -57,20 +81,24 @@ export function useAdminData() {
       if (sErr) throw sErr;
       setAllSessions(sessions || []);
 
-      // All wallet transactions
+      // ── Wallet transactions ───────────────────────────────────────────
       const { data: txns, error: txErr } = await supabase
         .from('wallet_transactions')
-        .select(`
-          id, type, amount, description, created_at,
-          tutor:tutor_id ( full_name, email )
-        `)
+        .select(`id, type, amount, description, created_at, user:user_id ( full_name, email )`)
         .order('created_at', { ascending: false });
       if (txErr) throw txErr;
       setAllTxns(txns || []);
 
-      // Platform stats via RPC
-      const { data: statsData, error: stErr } = await supabase
-        .rpc('get_admin_stats');
+      // ── Platform earnings (10% commission) ────────────────────────────
+      const { data: platData } = await supabase
+        .from('platform_earnings')
+        .select('*, booking:booking_id(subject, parent:parent_id(full_name), tutor:tutor_id(full_name))')
+        .order('created_at', { ascending: false });
+      setPlatformEarnings(platData || []);
+      setTotalCommission((platData || []).reduce((s,e) => s + Number(e.commission||0), 0));
+
+      // ── Stats ─────────────────────────────────────────────────────────
+      const { data: statsData, error: stErr } = await supabase.rpc('get_admin_stats');
       if (stErr) throw stErr;
       setStats(statsData);
 
@@ -84,56 +112,48 @@ export function useAdminData() {
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
   const approveTutor = async (tutorId, approvedRate, adminNotes) => {
-    const { error: err } = await supabase
-      .from('tutors')
-      .update({
-        status:        'approved',
-        approved_rate: Number(approvedRate),
-        admin_notes:   adminNotes || null,
-      })
+    const { error: err } = await supabase.from('tutors')
+      .update({ status: 'approved', approved_rate: Number(approvedRate), admin_notes: adminNotes || null })
       .eq('id', tutorId);
     if (err) throw err;
     await fetchAll();
   };
 
   const rejectTutor = async (tutorId, adminNotes) => {
-    const { error: err } = await supabase
-      .from('tutors')
+    const { error: err } = await supabase.from('tutors')
       .update({ status: 'rejected', admin_notes: adminNotes || null })
       .eq('id', tutorId);
     if (err) throw err;
     await fetchAll();
   };
 
+  const approveParent = async (parentId) => {
+    const { error: err } = await supabase.from('profiles')
+      .update({ status: 'approved' }).eq('id', parentId);
+    if (err) throw err;
+    await fetchAll();
+  };
+
+  const rejectParent = async (parentId) => {
+    const { error: err } = await supabase.from('profiles')
+      .update({ status: 'rejected' }).eq('id', parentId);
+    if (err) throw err;
+    await fetchAll();
+  };
+
   const deleteUser = async (userId) => {
-    // Remove from local state immediately so UI updates without waiting
     setAllUsers(prev => prev.filter(u => u.id !== userId));
-
-    // Call the server-side RPC that deletes from auth.users (cascades to profiles)
-    const { error: rpcErr } = await supabase.rpc('admin_delete_user', {
-      target_user_id: userId,
-    });
-
+    const { error: rpcErr } = await supabase.rpc('admin_delete_user', { target_user_id: userId });
     if (rpcErr) {
-      // If RPC fails, fall back to deleting profile row only
-      const { error: profileErr } = await supabase
-        .from('profiles')
-        .delete()
-        .eq('id', userId);
-
-      if (profileErr) {
-        // Restore the user in local state if both attempts failed
-        await fetchAll();
-        throw profileErr;
-      }
+      const { error: profileErr } = await supabase.from('profiles').delete().eq('id', userId);
+      if (profileErr) { await fetchAll(); throw profileErr; }
     }
-    // Don't call fetchAll() — we already updated local state optimistically
   };
 
   return {
-    stats, tutors, allUsers, allSessions, allTxns,
+    stats, tutors, pendingParents, allUsers, allSessions, allTxns, platformEarnings, totalCommission,
     loading, error,
-    approveTutor, rejectTutor, deleteUser,
+    approveTutor, rejectTutor, approveParent, rejectParent, deleteUser,
     refresh: fetchAll,
   };
 }

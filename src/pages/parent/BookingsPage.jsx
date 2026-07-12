@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Badge from '../../components/ui/Badge';
 import Icon from '../../components/ui/Icon';
 import EmptyState from '../../components/ui/EmptyState';
@@ -6,6 +6,7 @@ import Spinner from '../../components/ui/Spinner';
 import Modal from '../../components/ui/Modal';
 import FormGroup from '../../components/ui/FormGroup';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../context/AuthContext';
 import { useBookings, calculateCommission } from '../../hooks/useBookings';
 import tokens from '../../lib/tokens';
 
@@ -42,6 +43,7 @@ function Toast({ msg, type, onClose }) {
 }
 
 export default function BookingsPage() {
+  const { user } = useAuth();
   const { bookings, loading, updateBookingStatus, confirmComplete, saveSchedule } = useBookings();
 
   const [toast,        setToast]        = useState(null);   // {msg, type}
@@ -53,6 +55,7 @@ export default function BookingsPage() {
   const [reschedHour,  setReschedHour]  = useState('');
   const [savingResched,setSavingResched]= useState(false);
   const [detailModal,  setDetailModal]  = useState(null); // booking details
+  const [payingId,     setPayingId]     = useState(null); // booking being paid
   const [viewSlots,    setViewSlots]    = useState(null);   // booking object for slot list
   const [bookingSlots, setBookingSlots] = useState([]);     // slots for selected booking
   const [loadingSlots, setLoadingSlots] = useState(false);
@@ -179,6 +182,89 @@ export default function BookingsPage() {
     }
   };
 
+  const handleConfirmAndPay = async (b) => {
+    setPayingId(b.id);
+    try {
+      const RATE_PER_SESSION = 1; // ₱1 per session for demo
+      const SESSIONS         = 8;
+      const totalAmount      = RATE_PER_SESSION * SESSIONS; // ₱8
+
+      // Check parent wallet balance
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('wallet_balance')
+        .eq('id', user.id)
+        .single();
+
+      const balance = Number(profile?.wallet_balance || 0);
+      if (balance < totalAmount) {
+        showToast(`Insufficient wallet balance. You need ₱${totalAmount.toFixed(2)} but have ₱${balance.toFixed(2)}. Please top up first.`, 'error');
+        setPayingId(null);
+        return;
+      }
+
+      const gross    = totalAmount;
+      const fee      = Math.round(gross * 0.10 * 100) / 100;  // 10% platform
+      const earnings = Math.round(gross * 0.90 * 100) / 100;  // 90% tutor
+
+      // ── Step 1: Deduct full amount from parent wallet ──
+      const { error: deductErr } = await supabase.rpc('decrement_wallet', {
+        user_id: user.id,
+        amount:  totalAmount,
+      });
+      if (deductErr) throw new Error('Failed to deduct from wallet: ' + deductErr.message);
+
+      // Record parent deduction transaction
+      await supabase.from('wallet_transactions').insert({
+        user_id:     user.id,
+        type:        'deduction',
+        amount:      totalAmount,
+        description: `Payment for ${b.subject} sessions with ${b.tutor?.full_name||'Tutor'}`,
+        booking_id:  b.id,
+        status:      'completed',
+      });
+
+      // ── Step 2: Add 90% to tutor wallet ──
+      const { error: tutorErr } = await supabase.rpc('increment_tutor_wallet', {
+        tutor_id: b.tutor_id,
+        amount:   earnings,
+      });
+      if (tutorErr) throw new Error('Failed to credit tutor wallet: ' + tutorErr.message);
+
+      // Record tutor earning transaction
+      await supabase.from('wallet_transactions').insert({
+        user_id:     b.tutor_id,
+        type:        'earning',
+        amount:      earnings,
+        description: `90% earnings — ${b.subject} (${b.student?.name||'Student'}) via LearnBridge`,
+        booking_id:  b.id,
+        status:      'completed',
+      });
+
+      // ── Step 3: Record 10% platform commission ──
+      await supabase.from('platform_earnings').insert({
+        booking_id:   b.id,
+        gross_amount: gross,
+        commission:   fee,
+      });
+
+      // ── Step 4: Mark booking as paid ──
+      await supabase.from('bookings').update({
+        payment_status: 'paid',
+        paid_at:        new Date().toISOString(),
+        platform_fee:   fee,
+        tutor_earnings: earnings,
+        status:         'confirmed',
+      }).eq('id', b.id);
+
+      showToast(`✅ Payment confirmed! ₱${earnings.toFixed(2)} sent to tutor. ₱${fee.toFixed(2)} platform fee collected.`);
+    } catch(e) {
+      showToast(e.message, 'error');
+    } finally {
+      setPayingId(null);
+    }
+  };
+
   const handleConfirmComplete = async () => {
     if (!feedback.topic.trim()) { showToast('Please enter the topic covered.', 'error'); return; }
     setSaving(true);
@@ -260,6 +346,21 @@ export default function BookingsPage() {
                           onClick={()=>setDetailModal(b)}>
                           👁 View
                         </button>
+                        {/* Confirm & Pay — show when confirmed by tutor, both need to confirm, and unpaid */}
+                        {b.status === 'confirmed' && (b.payment_status === 'unpaid' || !b.payment_status) && (
+                          <button className="btn btn-sm"
+                            style={{background:'#22C55E',color:'#fff',border:'none',fontWeight:700}}
+                            onClick={()=>handleConfirmAndPay(b)}
+                            disabled={payingId===b.id}>
+                            {payingId===b.id ? '⏳ Processing...' : '✅ Confirm & Pay ₱8'}
+                          </button>
+                        )}
+                        {/* Paid badge */}
+                        {b.payment_status === 'paid' && (
+                          <span style={{fontSize:11,fontWeight:700,padding:'3px 10px',borderRadius:20,background:'#D1FAE5',color:'#065F46'}}>
+                            ✅ Paid
+                          </span>
+                        )}
                         {/* Confirm+Rate button */}
                         {b.status === 'pending_parent_confirm' && (
                           <button className="btn btn-primary btn-sm" onClick={() => setConfirmModal(b)}>
@@ -515,7 +616,7 @@ export default function BookingsPage() {
         )}
       </Modal>
 
-      {/* ── Confirm & Rate Modal ── */}
+      {/* ── Confirm & Rate Modal ── */}}
       <Modal
         open={!!confirmModal}
         onClose={() => setConfirmModal(null)}

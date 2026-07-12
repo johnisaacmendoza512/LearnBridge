@@ -1,364 +1,312 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
-import { useAuth } from '../../context/AuthContext';
-import Icon from '../../components/ui/Icon';
-import Avatar from '../../components/ui/Avatar';
 import Spinner from '../../components/ui/Spinner';
-import EmptyState from '../../components/ui/EmptyState';
-import FormGroup from '../../components/ui/FormGroup';
-import AppDialog from '../../components/ui/AppDialog';
+import Badge from '../../components/ui/Badge';
 import tokens from '../../lib/tokens';
 
-const STATUS_CONFIG = {
-  pending:  { label: 'Pending',  color: '#CA8A04', bg: '#FEF9C3' },
-  approved: { label: 'Approved', color: '#16A34A', bg: '#D1FAE5' },
-  rejected: { label: 'Rejected', color: '#DC2626', bg: '#FEE2E2' },
-};
+function Toast({ msg, type, onClose }) {
+  if (!msg) return null;
+  const bg = type==='error'?'#FEE2E2':'#D1FAE5', color=type==='error'?'#DC2626':'#065F46';
+  return (
+    <div style={{position:'fixed',top:24,right:24,zIndex:99999,background:bg,borderRadius:12,padding:'14px 20px',fontSize:14,color,fontWeight:600,boxShadow:'0 4px 20px rgba(0,0,0,.12)',display:'flex',alignItems:'center',gap:10,maxWidth:380}}>
+      <span>{type==='error'?'❌':'✅'}</span><span style={{flex:1}}>{msg}</span>
+      <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',color,fontSize:16,padding:0}}>✕</button>
+    </div>
+  );
+}
+
+function fmtDate(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('en-PH', {month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'});
+}
 
 export default function TransactionsPage() {
-  const { user } = useAuth();
-  const [requests,   setRequests]   = useState([]);
-  const [loading,    setLoading]    = useState(true);
-  const [filter,     setFilter]     = useState('pending');
-  const [selected,   setSelected]   = useState(null);
-  const [adminNote,  setAdminNote]  = useState('');
-  const [processing, setProcessing] = useState(false);
-  const [receiptUrl, setReceiptUrl] = useState(null);
-  const [dialog,     setDialog]     = useState(null);
+  const [tab,              setTab]              = useState('commission');
+  const [commission,       setCommission]       = useState([]);
+  const [allTxns,          setAllTxns]          = useState([]);
+  const [withdrawals,      setWithdrawals]      = useState([]);
+  const [loading,          setLoading]          = useState(true);
+  const [toast,            setToast]            = useState(null);
+  const [processing,       setProcessing]       = useState(null);
 
-  const fetchRequests = useCallback(async () => {
+  const showToast = (msg, type='success') => { setToast({msg,type}); setTimeout(()=>setToast(null),3500); };
+
+  const fetchAll = async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from('wallet_topups')
+
+    // Platform commission (10%)
+    const { data: platData } = await supabase
+      .from('platform_earnings')
       .select(`
         *,
-        tutor:tutor_id ( id, full_name, email )
+        booking:booking_id (
+          subject,
+          parent:parent_id (full_name),
+          tutor:tutor_id (full_name)
+        )
       `)
       .order('created_at', { ascending: false });
-    setRequests(data || []);
+    setCommission(platData || []);
+
+    // All wallet transactions
+    const { data: txnData } = await supabase
+      .from('wallet_transactions')
+      .select(`*, user:user_id (full_name, email)`)
+      .order('created_at', { ascending: false });
+    setAllTxns(txnData || []);
+
+    // Pending withdrawals (tutor withdrawals pending admin action)
+    const { data: wdData } = await supabase
+      .from('wallet_transactions')
+      .select(`*, user:user_id (full_name, email)`)
+      .eq('type', 'withdrawal')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false });
+    setWithdrawals(wdData || []);
+
     setLoading(false);
-  }, []);
+  };
 
-  useEffect(() => { fetchRequests(); }, [fetchRequests]);
+  useEffect(() => { fetchAll(); }, []);
 
-  const openRequest = async (req) => {
-    setSelected(req);
-    setAdminNote(req.admin_notes || '');
-    setReceiptUrl(null);
-
-    // Generate signed URL for receipt
-    if (req.receipt_url) {
-      try {
-        let path = '';
-        if (req.receipt_url.includes('wallet-receipts/')) {
-          path = req.receipt_url.split('wallet-receipts/')[1];
-        } else {
-          path = `${req.tutor_id}/${req.receipt_url.split('/').pop()}`;
-        }
-        const { data } = await supabase.storage
-          .from('wallet-receipts')
-          .createSignedUrl(path, 3600);
-        if (data?.signedUrl) setReceiptUrl(data.signedUrl);
-        else setReceiptUrl(req.receipt_url);
-      } catch {
-        setReceiptUrl(req.receipt_url);
+  const handleProcessWithdrawal = async (txn, action) => {
+    setProcessing(txn.id);
+    try {
+      if (action === 'approve') {
+        await supabase.from('wallet_transactions')
+          .update({ status: 'completed' })
+          .eq('id', txn.id);
+        showToast(`✅ Withdrawal of ₱${Number(txn.amount).toFixed(2)} approved for ${txn.user?.full_name}`);
+      } else {
+        // Reject — refund to tutor wallet
+        await supabase.from('wallet_transactions')
+          .update({ status: 'failed' })
+          .eq('id', txn.id);
+        await supabase.rpc('increment_tutor_wallet', {
+          tutor_id: txn.user_id,
+          amount:   txn.amount,
+        });
+        showToast(`Withdrawal rejected. ₱${Number(txn.amount).toFixed(2)} refunded to tutor wallet.`);
       }
-    }
+      await fetchAll();
+    } catch(e) { showToast(e.message, 'error'); }
+    finally { setProcessing(null); }
   };
 
-  const handleApprove = async () => {
-    const tutorName = selected.tutor?.full_name;
-    const amount    = Number(selected.amount).toLocaleString();
-    setDialog({
-      type: 'confirm',
-      title: 'Approve Top-Up',
-      message: `Credit ₱${amount} to ${tutorName}'s wallet?`,
-      confirmLabel: 'Yes, Approve',
-      onConfirm: async () => {
-        setDialog(null);
-        setProcessing(true);
-        try {
-          const { data: tutorData } = await supabase
-            .from('tutors')
-            .select('wallet_balance')
-            .eq('id', selected.tutor_id)
-            .single();
+  // Summary totals
+  const totalCommission  = commission.reduce((s,e) => s + Number(e.commission||0), 0);
+  const totalTopUps      = allTxns.filter(t=>t.type==='topup').reduce((s,t) => s + Number(t.amount||0), 0);
+  const totalEarnings    = allTxns.filter(t=>t.type==='earning').reduce((s,t) => s + Number(t.amount||0), 0);
+  const pendingWithdraw  = withdrawals.reduce((s,t) => s + Number(t.amount||0), 0);
 
-          const currentBalance = Number(tutorData?.wallet_balance || 0);
-          const newBalance     = currentBalance + Number(selected.amount);
-
-          await supabase.from('tutors')
-            .update({ wallet_balance: newBalance })
-            .eq('id', selected.tutor_id);
-
-          await supabase.from('wallet_transactions').insert({
-            tutor_id:      selected.tutor_id,
-            type:          'topup',
-            amount:        Number(selected.amount),
-            balance_after: newBalance,
-            description:   `Wallet Top-Up · GCash Ref: ${selected.reference_number}`,
-            topup_id:      selected.id,
-          });
-
-          await supabase.from('wallet_topups').update({
-            status:      'approved',
-            admin_notes: adminNote || null,
-            approved_by: user.id,
-            approved_at: new Date().toISOString(),
-          }).eq('id', selected.id);
-
-          setSelected(null);
-          await fetchRequests();
-          setDialog({
-            type: 'success',
-            title: 'Top-Up Approved!',
-            message: `₱${amount} has been credited to ${tutorName}'s wallet successfully.`,
-          });
-        } catch (e) {
-          setDialog({ type: 'error', title: 'Error', message: e.message });
-        } finally {
-          setProcessing(false);
-        }
-      },
-    });
-  };
-
-  const handleReject = async () => {
-    const tutorName = selected.tutor?.full_name;
-    setDialog({
-      type: 'confirm',
-      title: 'Reject Request',
-      message: `Reject this top-up request from ${tutorName}?`,
-      confirmLabel: 'Yes, Reject',
-      confirmDanger: true,
-      onConfirm: async () => {
-        setDialog(null);
-        setProcessing(true);
-        try {
-          await supabase.from('wallet_topups').update({
-            status:      'rejected',
-            admin_notes: adminNote || null,
-            approved_by: user.id,
-            approved_at: new Date().toISOString(),
-          }).eq('id', selected.id);
-          setSelected(null);
-          await fetchRequests();
-          setDialog({
-            type: 'error',
-            title: 'Request Rejected',
-            message: `The top-up request from ${tutorName} has been rejected.`,
-          });
-        } catch (e) {
-          setDialog({ type: 'error', title: 'Error', message: e.message });
-        } finally {
-          setProcessing(false);
-        }
-      },
-    });
-  };
-
-  const filtered = requests.filter(r => filter === 'all' || r.status === filter);
+  const TABS = [
+    { key:'commission', label:'🏛 Platform Commission', count:commission.length },
+    { key:'all',        label:'📋 All Transactions',    count:allTxns.length },
+    { key:'withdraw',   label:'📤 Withdrawal Requests', count:withdrawals.length },
+  ];
 
   return (
     <div className="fade-in">
+      <Toast msg={toast?.msg} type={toast?.type} onClose={()=>setToast(null)}/>
+
       <div className="mb-24">
-        <h2 className="font-jakarta font-extrabold" style={{ fontSize: 22 }}>Wallet Top-Up Requests</h2>
-        <p className="text-sm text-muted mt-4">Review and approve tutor GCash wallet top-up requests.</p>
+        <h2 className="font-jakarta font-extrabold" style={{fontSize:22}}>💰 Transactions</h2>
+        <p className="text-sm text-muted mt-4">Platform financial overview — all payments, earnings and commissions.</p>
       </div>
 
       {/* Summary cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, marginBottom: 24 }}>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:16,marginBottom:24}}>
         {[
-          { label: 'Pending',  count: requests.filter(r => r.status === 'pending').length,  color: '#CA8A04', bg: '#FEF9C3' },
-          { label: 'Approved', count: requests.filter(r => r.status === 'approved').length, color: '#16A34A', bg: '#D1FAE5' },
-          { label: 'Rejected', count: requests.filter(r => r.status === 'rejected').length, color: '#DC2626', bg: '#FEE2E2' },
-        ].map(c => (
-          <div key={c.label} className="card p-20 text-center">
-            <div className="font-jakarta font-extrabold" style={{ fontSize: 32, color: c.color }}>{c.count}</div>
-            <div className="text-sm text-muted">{c.label} Requests</div>
+          {label:'Platform Commission (10%)', value:`₱${totalCommission.toFixed(2)}`,  bg:'#D1FAE5', color:'#065F46', icon:'🏛'},
+          {label:'Total Parent Top Ups',      value:`₱${totalTopUps.toFixed(2)}`,       bg:'#EFF6FF', color:'#1D4ED8', icon:'💳'},
+          {label:'Total Tutor Earnings (90%)',value:`₱${totalEarnings.toFixed(2)}`,     bg:'#FEF9C3', color:'#92400E', icon:'💰'},
+          {label:'Pending Withdrawals',       value:`₱${pendingWithdraw.toFixed(2)}`,   bg:'#FEE2E2', color:'#DC2626', icon:'📤'},
+        ].map(c=>(
+          <div key={c.label} style={{background:c.bg,borderRadius:14,padding:'16px 20px'}}>
+            <div style={{fontSize:24,marginBottom:6}}>{c.icon}</div>
+            <div style={{fontSize:20,fontWeight:900,color:c.color}}>{c.value}</div>
+            <div style={{fontSize:11,color:c.color,opacity:0.8,marginTop:2}}>{c.label}</div>
           </div>
         ))}
       </div>
 
-      {/* Filter tabs */}
-      <div className="flex gap-8 mb-16">
-        {['all', 'pending', 'approved', 'rejected'].map(f => (
-          <button key={f} onClick={() => setFilter(f)} className="btn btn-sm" style={{
-            background: filter === f ? tokens.primary : '#fff',
-            color:      filter === f ? '#fff' : tokens.mid,
-            border:     `1.5px solid ${filter === f ? tokens.primary : tokens.border}`,
-            textTransform: 'capitalize',
-          }}>
-            {f} {f !== 'all' && `(${requests.filter(r => r.status === f).length})`}
+      {/* Tabs */}
+      <div className="flex gap-0 mb-20" style={{borderBottom:`2px solid ${tokens.border}`}}>
+        {TABS.map(t=>(
+          <button key={t.key} onClick={()=>setTab(t.key)}
+            style={{padding:'10px 24px',border:'none',borderBottom:`3px solid ${tab===t.key?tokens.primary:'transparent'}`,background:'none',cursor:'pointer',fontWeight:700,fontSize:13,color:tab===t.key?tokens.primary:tokens.muted,marginBottom:-2,display:'flex',alignItems:'center',gap:8}}>
+            {t.label}
+            {t.count>0&&<span style={{fontSize:11,fontWeight:800,padding:'2px 8px',borderRadius:20,background:tab===t.key?tokens.primary:'#E5E7EB',color:tab===t.key?'#fff':tokens.muted}}>{t.count}</span>}
           </button>
         ))}
       </div>
 
-      <div className="card">
-        {loading ? (
-          <div style={{ padding: 40, textAlign: 'center' }}><Spinner dark size={28} /></div>
-        ) : filtered.length === 0 ? (
-          <EmptyState icon="💳" title="No requests found" description="Top-up requests will appear here." />
-        ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Tutor</th>
-                <th>Amount</th>
-                <th>Reference #</th>
-                <th>Receipt</th>
-                <th>Date</th>
-                <th>Status</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((r, i) => {
-                const sc = STATUS_CONFIG[r.status] || STATUS_CONFIG.pending;
-                return (
-                  <tr key={r.id}>
-                    <td>
-                      <div className="flex items-center gap-8">
-                        <Avatar name={r.tutor?.full_name || 'T'} size={28} colorIndex={i} />
-                        <div>
-                          <div className="font-semibold" style={{ fontSize: 13 }}>{r.tutor?.full_name || '—'}</div>
-                          <div className="text-xs text-muted">{r.tutor?.email}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="font-semibold" style={{ fontSize: 14, color: tokens.success }}>
-                      +₱{Number(r.amount).toLocaleString()}
-                    </td>
-                    <td style={{ fontSize: 12, fontFamily: 'monospace', color: tokens.mid }}>{r.reference_number}</td>
-                    <td>
-                      {r.receipt_url ? (
-                        <span style={{ fontSize: 12, color: tokens.primary }}>📎 Attached</span>
-                      ) : (
-                        <span className="text-xs text-muted">No receipt</span>
-                      )}
-                    </td>
-                    <td style={{ fontSize: 12, color: tokens.muted }}>
-                      {new Date(r.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </td>
-                    <td>
-                      <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: sc.bg, color: sc.color }}>
-                        {sc.label}
-                      </span>
-                    </td>
-                    <td>
-                      <button
-                        className="btn btn-sm"
-                        style={{ background: '#D1FAE5', color: '#065F46' }}
-                        onClick={() => openRequest(r)}
-                      >
-                        <Icon name="eye" size={11} color="#065F46" /> Review
-                      </button>
-                    </td>
+      {loading ? <Spinner dark size={28}/> : (
+        <div className="card" style={{overflow:'hidden'}}>
+
+          {/* Platform Commission Tab */}
+          {tab==='commission' && (
+            commission.length===0 ? (
+              <div style={{textAlign:'center',padding:'40px 0',color:tokens.muted}}>No commission records yet.</div>
+            ) : (
+              <table className="table">
+                <thead>
+                  <tr><th>Booking</th><th>Parent</th><th>Tutor</th><th>Gross</th><th>Commission (10%)</th><th>Date</th></tr>
+                </thead>
+                <tbody>
+                  {commission.map(e=>(
+                    <tr key={e.id}>
+                      <td style={{fontSize:13,textTransform:'capitalize'}}>{e.booking?.subject||'—'}</td>
+                      <td style={{fontSize:13}}>{e.booking?.parent?.full_name||'—'}</td>
+                      <td style={{fontSize:13}}>{e.booking?.tutor?.full_name||'—'}</td>
+                      <td style={{fontSize:13,fontWeight:600}}>₱{Number(e.gross_amount).toFixed(2)}</td>
+                      <td style={{fontSize:14,fontWeight:800,color:'#065F46'}}>₱{Number(e.commission).toFixed(2)}</td>
+                      <td style={{fontSize:12,color:tokens.muted}}>{fmtDate(e.created_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{background:'#F0FDF4'}}>
+                    <td colSpan={4} style={{fontWeight:700,padding:'12px 16px'}}>Total Platform Earnings</td>
+                    <td style={{fontSize:16,fontWeight:900,color:'#065F46',padding:'12px 16px'}}>₱{totalCommission.toFixed(2)}</td>
+                    <td/>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
+                </tfoot>
+              </table>
+            )
+          )}
 
-      {/* Review Modal */}
-      {selected && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,.5)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
-        }}>
-          <div style={{
-            background: '#fff', borderRadius: 20, width: '100%', maxWidth: 540,
-            maxHeight: '90vh', overflowY: 'auto', padding: 36,
-          }}>
-            <div className="flex items-center justify-between mb-24">
-              <h3 className="font-jakarta font-bold" style={{ fontSize: 18 }}>Review Top-Up Request</h3>
-              <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, color: tokens.muted }}>×</button>
-            </div>
+          {/* All Transactions Tab */}
+          {tab==='all' && (
+            allTxns.length===0 ? (
+              <div style={{textAlign:'center',padding:'40px 0',color:tokens.muted}}>No transactions yet.</div>
+            ) : (
+              <table className="table">
+                <thead>
+                  <tr><th>User</th><th>Type</th><th>Amount</th><th>Description</th><th>Status</th><th>Date</th></tr>
+                </thead>
+                <tbody>
+                  {allTxns.map(t=>{
+                    const typeConfig = {
+                      topup:      {label:'Top Up',    color:'#1D4ED8', bg:'#DBEAFE'},
+                      deduction:  {label:'Payment',   color:'#DC2626', bg:'#FEE2E2'},
+                      earning:    {label:'Earning',   color:'#065F46', bg:'#D1FAE5'},
+                      withdrawal: {label:'Withdrawal',color:'#D97706', bg:'#FEF9C3'},
+                    };
+                    const tc = typeConfig[t.type] || {label:t.type, color:tokens.muted, bg:'#F3F4F6'};
+                    return (
+                      <tr key={t.id}>
+                        <td style={{fontSize:13}}>
+                          <div style={{fontWeight:600}}>{t.user?.full_name||'—'}</div>
+                          <div style={{fontSize:11,color:tokens.muted}}>{t.user?.email||'—'}</div>
+                        </td>
+                        <td>
+                          <span style={{fontSize:11,fontWeight:700,padding:'3px 10px',borderRadius:20,background:tc.bg,color:tc.color}}>
+                            {tc.label}
+                          </span>
+                        </td>
+                        <td style={{fontSize:14,fontWeight:800,color:t.type==='deduction'?'#DC2626':'#065F46'}}>
+                          {t.type==='deduction'?'-':'+'} ₱{Number(t.amount).toFixed(2)}
+                        </td>
+                        <td style={{fontSize:12,color:tokens.mid,maxWidth:200}}>{t.description||'—'}</td>
+                        <td>
+                          <Badge variant={t.status==='completed'?'success':t.status==='pending'?'warning':'danger'}>
+                            {t.status}
+                          </Badge>
+                        </td>
+                        <td style={{fontSize:12,color:tokens.muted}}>{fmtDate(t.created_at)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )
+          )}
 
-            {/* Request details grid */}
-            <div className="grid-2 mb-16">
-              {[
-                ['Tutor',      selected.tutor?.full_name || '—'],
-                ['Email',      selected.tutor?.email     || '—'],
-                ['Amount',     `₱${Number(selected.amount).toLocaleString()}`],
-                ['Reference #',selected.reference_number],
-                ['Submitted',  new Date(selected.created_at).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })],
-                ['Status',     STATUS_CONFIG[selected.status]?.label || selected.status],
-              ].map(([k, v]) => (
-                <div key={k} style={{ background: '#F9FAFB', borderRadius: 8, padding: 12 }}>
-                  <div className="text-xs text-muted uppercase font-bold mb-4" style={{ letterSpacing: '0.5px' }}>{k}</div>
-                  <div className="font-semibold" style={{ fontSize: 13 }}>{v}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* Receipt */}
-            <div style={{ marginBottom: 16 }}>
-              <div className="text-xs text-muted uppercase font-bold mb-8" style={{ letterSpacing: '0.5px' }}>Receipt</div>
-              {receiptUrl ? (
-                <a
-                  href={receiptUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="btn btn-primary btn-sm"
-                >
-                  <Icon name="eye" size={12} /> View Receipt
-                </a>
-              ) : (
-                <span className="text-sm text-muted">No receipt uploaded</span>
-              )}
-            </div>
-
-            {/* Admin notes */}
-            <FormGroup label="Admin Notes" hint="Optional — visible to tutor if rejected.">
-              <textarea
-                className="textarea"
-                placeholder="Reason for rejection or any notes..."
-                value={adminNote}
-                onChange={e => setAdminNote(e.target.value)}
-              />
-            </FormGroup>
-
-            {selected.status === 'pending' ? (
-              <div className="flex gap-10 mt-4">
-                <button className="btn btn-ghost btn-full" onClick={() => setSelected(null)} disabled={processing}>
-                  Close
-                </button>
-                <button
-                  className="btn btn-full"
-                  style={{ background: '#FEE2E2', color: '#DC2626' }}
-                  onClick={handleReject}
-                  disabled={processing}
-                >
-                  <Icon name="x" size={13} color="#DC2626" /> Reject
-                </button>
-                <button
-                  className="btn btn-primary btn-full"
-                  onClick={handleApprove}
-                  disabled={processing}
-                >
-                  {processing ? <Spinner /> : <><Icon name="check" size={13} /> Approve & Credit</>}
-                </button>
+          {/* Withdrawal Requests Tab */}
+          {tab==='withdraw' && (
+            withdrawals.length===0 ? (
+              <div style={{textAlign:'center',padding:'40px 0',color:tokens.muted}}>
+                <div style={{fontSize:40,marginBottom:12}}>✅</div>
+                <div style={{fontWeight:600}}>No pending withdrawals</div>
               </div>
             ) : (
-              <button className="btn btn-ghost btn-full mt-4" onClick={() => setSelected(null)}>Close</button>
-            )}
-          </div>
+              <div style={{display:'flex',flexDirection:'column',gap:16,padding:20}}>
+                <div style={{background:'#FEF9C3',border:'1px solid #FDE68A',borderRadius:10,padding:'12px 16px',fontSize:13,color:'#92400E',lineHeight:1.6}}>
+                  ⚠️ <strong>Admin action required:</strong> For each approved withdrawal, manually send the amount to the tutor's GCash number shown below, then click Approve to confirm.
+                </div>
+                {withdrawals.map(t=>{
+                  // Extract GCash number from description e.g. "Withdrawal to GCash 09171234567"
+                  const gcashMatch = (t.description||'').match(/GCash\s+(09\d{9})/);
+                  const gcashNum   = gcashMatch ? gcashMatch[1] : null;
+                  return (
+                    <div key={t.id} style={{border:`2px solid #FDE68A`,borderRadius:14,overflow:'hidden'}}>
+                      {/* Header */}
+                      <div style={{background:'#FFFBEB',padding:'14px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',borderBottom:'1px solid #FDE68A'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:12}}>
+                          <div style={{width:40,height:40,borderRadius:'50%',background:'#F59E0B',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                            <span style={{color:'#fff',fontWeight:800,fontSize:16}}>{(t.user?.full_name||'T').charAt(0)}</span>
+                          </div>
+                          <div>
+                            <div style={{fontWeight:700,fontSize:15}}>{t.user?.full_name||'—'}</div>
+                            <div style={{fontSize:12,color:tokens.muted}}>{t.user?.email||'—'}</div>
+                          </div>
+                        </div>
+                        <div style={{textAlign:'right'}}>
+                          <div style={{fontSize:28,fontWeight:900,color:'#D97706'}}>₱{Number(t.amount).toFixed(2)}</div>
+                          <div style={{fontSize:11,color:tokens.muted}}>{fmtDate(t.created_at)}</div>
+                        </div>
+                      </div>
+
+                      {/* GCash number — prominent */}
+                      <div style={{padding:'16px 20px',background:'#fff'}}>
+                        <div style={{fontSize:12,color:tokens.muted,fontWeight:600,marginBottom:8,textTransform:'uppercase',letterSpacing:'0.5px'}}>Send to GCash:</div>
+                        {gcashNum ? (
+                          <div style={{display:'flex',alignItems:'center',gap:12}}>
+                            <div style={{background:'#007AFF',borderRadius:10,padding:'12px 20px',display:'inline-flex',alignItems:'center',gap:10}}>
+                              <span style={{fontSize:24}}>📱</span>
+                              <div>
+                                <div style={{color:'#fff',fontWeight:900,fontSize:22,letterSpacing:2}}>{gcashNum}</div>
+                                <div style={{color:'rgba(255,255,255,0.8)',fontSize:11}}>GCash Number</div>
+                              </div>
+                            </div>
+                            <button
+                              onClick={()=>{navigator.clipboard.writeText(gcashNum); showToast('GCash number copied!');}}
+                              style={{padding:'8px 16px',borderRadius:8,background:'#EFF6FF',border:'1px solid #BFDBFE',color:'#1D4ED8',fontWeight:600,fontSize:13,cursor:'pointer'}}>
+                              📋 Copy
+                            </button>
+                          </div>
+                        ) : (
+                          <div style={{fontSize:13,color:tokens.muted,fontStyle:'italic'}}>{t.description||'No GCash info provided'}</div>
+                        )}
+                      </div>
+
+                      {/* Actions */}
+                      <div style={{padding:'12px 20px',background:'#F9FAFB',borderTop:'1px solid #FDE68A',display:'flex',gap:10,alignItems:'center'}}>
+                        <span style={{fontSize:12,color:tokens.muted,flex:1}}>
+                          Once you've sent ₱{Number(t.amount).toFixed(2)} to GCash {gcashNum||''}, click Approve to confirm.
+                        </span>
+                        <button className="btn btn-sm"
+                          style={{background:'#D1FAE5',color:'#065F46',border:'1px solid #6EE7B7',fontWeight:700,padding:'10px 20px'}}
+                          onClick={()=>handleProcessWithdrawal(t,'approve')}
+                          disabled={processing===t.id}>
+                          {processing===t.id?'Processing...':'✅ Sent — Approve'}
+                        </button>
+                        <button className="btn btn-sm"
+                          style={{background:'#FEE2E2',color:'#DC2626',border:'1px solid #FECACA',fontWeight:700}}
+                          onClick={()=>handleProcessWithdrawal(t,'reject')}
+                          disabled={processing===t.id}>
+                          {processing===t.id?'...':'✗ Reject'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          )}
         </div>
       )}
-
-      <AppDialog
-        open={!!dialog}
-        type={dialog?.type}
-        title={dialog?.title}
-        message={dialog?.message}
-        confirmLabel={dialog?.confirmLabel}
-        confirmDanger={dialog?.confirmDanger}
-        onClose={() => setDialog(null)}
-        onConfirm={dialog?.onConfirm}
-      />
     </div>
   );
 }

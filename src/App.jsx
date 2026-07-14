@@ -43,7 +43,7 @@ import UsersPage             from './pages/admin/UsersPage';
 import TransactionsPage      from './pages/admin/TransactionsPage';
 import AdminSessionsPage     from './pages/admin/AdminSessionsPage';
 
-// ── Role-based routers ─────────────────────────────────────────────────────
+// ── Role-based routers ──────────────────────────────────────────────────────
 function RoleDashboard() {
   const { profile } = useAuth();
   if (profile?.role === 'admin') return <AdminDashboard />;
@@ -112,10 +112,9 @@ function AppRoutes() {
 
           {/* Tutor-only */}
           <Route element={<ProtectedRoute allowedRoles={['tutor']} />}>
-            <Route path="/my-profile"    element={<TutorProfilePage />} />
             <Route path="/certification" element={<CertificationPage />} />
             <Route path="/wallet"        element={<WalletPage />}        />
-            <Route path="/calendar" element={<TutorCalendarPage />} />
+            <Route path="/calendar"      element={<TutorCalendarPage />} />
           </Route>
 
           {/* Admin-only */}
@@ -125,12 +124,12 @@ function AppRoutes() {
             <Route path="/transactions"       element={<TransactionsPage />}      />
           </Route>
 
-          {/* Shared routes */}
-          <Route path="/my-profile"    element={<RoleProfile />}     />
-          <Route path="/bookings"      element={<RoleBookings />}    />
-          <Route path="/sessions"      element={<RoleSessions />}    />
+          {/* Shared routes — accessible by all roles */}
+          <Route path="/my-profile"    element={<RoleProfile />}      />
+          <Route path="/bookings"      element={<RoleBookings />}     />
+          <Route path="/sessions"      element={<RoleSessions />}     />
           <Route path="/question-bank" element={<RoleQuestionBank />} />
-          <Route path="/messages"      element={<RoleMessages />}    />
+          <Route path="/messages"      element={<RoleMessages />}     />
 
           {/* Legacy redirect */}
           <Route path="/progress" element={<Navigate to="/sessions" replace />} />

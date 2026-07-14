@@ -45,23 +45,23 @@ export function useAdminData() {
       if (ppErr) throw ppErr;
       setPendingParents(ppRows || []);
 
-      // ── All users for Users page (approved parents + tutors + admins) ─
-      const { data: approvedParents, error: apErr } = await supabase
+      // ── All users for Users page ──────────────────────────────────────
+      const { data: allProfiles, error: apErr } = await supabase
         .from('profiles')
         .select('*')
-        .eq('role', 'parent')
-        .eq('status', 'approved')
         .order('created_at', { ascending: false });
       if (apErr) throw apErr;
 
-      const { data: nonParents, error: npErr } = await supabase
-        .from('profiles')
-        .select('*')
-        .neq('role', 'parent')
-        .order('created_at', { ascending: false });
-      if (npErr) throw npErr;
+      // Merge tutor data into tutor profiles
+      const mergedUsers = (allProfiles || []).map(p => {
+        if (p.role === 'tutor') {
+          const tutorRow = (tutorRows || []).find(t => t.id === p.id);
+          return { ...p, tutorData: tutorRow || null };
+        }
+        return p;
+      });
 
-      setAllUsers([...(nonParents || []), ...(approvedParents || [])]);
+      setAllUsers(mergedUsers);
 
       // ── Sessions ──────────────────────────────────────────────────────
       const { data: sessions, error: sErr } = await supabase

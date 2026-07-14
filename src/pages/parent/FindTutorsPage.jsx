@@ -132,6 +132,7 @@ export default function FindTutorsPage() {
   },[booking,step,fetchSlots]);
 
   const getDateStatus = (dateStr) => {
+    // Only used for color indicator — does NOT block clicking
     const daySlots = slots.filter(s=>s.slot_date===dateStr);
     if (daySlots.some(s=>s.status==='confirmed')) return 'occupied';
     if (daySlots.some(s=>s.status==='pending'))   return 'pending';
@@ -151,7 +152,7 @@ export default function FindTutorsPage() {
   };
 
   const handleSelectDate = (dateStr, status) => {
-    if (status !== 'available') return;
+    // All non-past dates are clickable — individual times may still be occupied
     // If already selected, remove it
     if (selectedSlots.find(s=>s.date===dateStr)) {
       setSelectedSlots(prev=>prev.filter(s=>s.date!==dateStr));
@@ -458,15 +459,15 @@ export default function FindTutorsPage() {
                     const isPickingThis = pickingDate===dateStr;
 
                     let bg='#F0FDF4', border='#22C55E', cursor='pointer', color='#15803D';
-                    if (isPast)               { bg='#F9FAFB'; border=tokens.border; cursor='default'; color=tokens.muted; }
-                    else if (isSelected)      { bg='#EEF2FF'; border='#6366F1'; color='#4F46E5'; }
-                    else if (isPickingThis)   { bg='#FDF4FF'; border='#A855F7'; color='#7C3AED'; }
-                    else if (status==='occupied'){ bg='#FEF2F2'; border='#EF4444'; cursor='default'; color='#DC2626'; }
-                    else if (status==='pending') { bg='#FFFBEB'; border='#F59E0B'; cursor='default'; color='#D97706'; }
+                    if (isPast)                  { bg='#F9FAFB'; border=tokens.border; cursor='not-allowed'; color=tokens.muted; }
+                    else if (isSelected)         { bg='#EEF2FF'; border='#6366F1'; color='#4F46E5'; }
+                    else if (isPickingThis)      { bg='#FDF4FF'; border='#A855F7'; color='#7C3AED'; }
+                    else if (status==='occupied'){ bg='#FEF2F2'; border='#EF4444'; color='#DC2626'; } // red but still clickable
+                    else if (status==='pending') { bg='#FFFBEB'; border='#F59E0B'; color='#D97706'; } // orange but still clickable
 
                     return (
                       <button key={day} type="button"
-                        disabled={isPast||(status!=='available'&&!isSelected)}
+                        disabled={isPast}
                         onClick={()=>handleSelectDate(dateStr,status)}
                         style={{padding:'6px 2px',borderRadius:8,border:`2px solid ${border}`,background:bg,cursor,color,fontWeight:isSelected?800:600,fontSize:12,transition:'all 0.15s',textAlign:'center',minHeight:44,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:2}}>
                         <span>{day}</span>

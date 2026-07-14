@@ -53,7 +53,7 @@ export default function TutorCalendarPage() {
       .select(`
         *,
         booking:booking_id (
-          id, subject, session_mode, payment_method, total_amount,
+          id, subject, session_mode, payment_method, total_amount, status,
           parent:parent_id (full_name, email),
           student:student_id (name, grade_level)
         )
@@ -68,8 +68,14 @@ export default function TutorCalendarPage() {
   useEffect(()=>{ fetchSlots(); },[fetchSlots]);
 
   const getDateStatus = (dateStr) => {
-    const daySlots = slots.filter(s=>s.slot_date===dateStr);
+    // Only count active slots (not rejected or from completed bookings)
+    const daySlots = slots.filter(s =>
+      s.slot_date === dateStr &&
+      s.status !== 'rejected' &&
+      s.booking?.status !== 'completed'
+    );
     if (!daySlots.length) return 'available';
+    // If ALL slots on this day are confirmed — show red but still bookable at other times
     if (daySlots.some(s=>s.status==='confirmed')) return 'confirmed';
     if (daySlots.some(s=>s.status==='pending'))   return 'pending';
     return 'available';
@@ -78,7 +84,7 @@ export default function TutorCalendarPage() {
   const handleDayClick = (dateStr) => {
     const daySlots = slots.filter(s=>s.slot_date===dateStr);
     setSelDate(dateStr);
-    setDayModal(daySlots); // show modal even if empty (shows "Available" message)
+    setDayModal(daySlots);
   };
 
   const handleAccept = async (slot) => {
@@ -197,11 +203,17 @@ export default function TutorCalendarPage() {
               const daySlots = slots.filter(s=>s.slot_date===dateStr);
               const isToday  = dateStr===todayStr;
 
-              // Full box colors: green=available, orange=pending, red=confirmed, gray=past
+              // Active slots = non-rejected, non-completed booking slots
+              const activeSlots = daySlots.filter(s =>
+                s.status !== 'rejected' && s.booking?.status !== 'completed'
+              );
+
+              // Full box colors: green=available, orange=pending, red=has confirmed slots
               let bg, border, color, textColor;
-              if (isPast && daySlots.length===0) {
+              if (isPast && activeSlots.length===0) {
                 bg='#F3F4F6'; border='#E5E7EB'; color='#9CA3AF'; textColor='#9CA3AF';
               } else if (status==='confirmed') {
+                // Red but tutor can still get bookings on other times
                 bg='#EF4444'; border='#DC2626'; color='#fff'; textColor='#fff';
               } else if (status==='pending') {
                 bg='#F97316'; border='#EA580C'; color='#fff'; textColor='#fff';
@@ -228,9 +240,9 @@ export default function TutorCalendarPage() {
                     boxShadow:isToday?`0 0 0 3px ${tokens.primary}40`:'none',
                   }}>
                   <span style={{fontWeight:700,fontSize:15,color:isToday?'#fff':textColor}}>{day}</span>
-                  {daySlots.length>0&&(
+                  {activeSlots.length>0&&(
                     <span style={{fontSize:10,fontWeight:700,color:isToday?'rgba(255,255,255,0.8)':textColor,opacity:0.9}}>
-                      {daySlots.length} booking{daySlots.length!==1?'s':''}
+                      {activeSlots.length} slot{activeSlots.length!==1?'s':''}
                     </span>
                   )}
                 </button>
@@ -254,11 +266,13 @@ export default function TutorCalendarPage() {
             ) : (
               <div style={{display:'flex',flexDirection:'column',gap:14}}>
                 {dayModal.map(slot=>(
-                  <div key={slot.id} style={{border:`2px solid ${slot.status==='confirmed'?'#6EE7B7':slot.status==='pending'?'#FDE68A':'#E5E7EB'}`,borderRadius:12,padding:16,background:slot.status==='confirmed'?'#F0FDF4':slot.status==='pending'?'#FFFBEB':'#FAFAFA'}}>
+                  <div key={slot.id} style={{border:`2px solid ${slot.booking?.status==='completed'?'#E5E7EB':slot.status==='confirmed'?'#6EE7B7':slot.status==='pending'?'#FDE68A':'#E5E7EB'}`,borderRadius:12,padding:16,background:slot.booking?.status==='completed'?'#F3F4F6':slot.status==='confirmed'?'#F0FDF4':slot.status==='pending'?'#FFFBEB':'#FAFAFA',opacity:slot.booking?.status==='completed'?0.6:1}}>
                     {/* Status badge */}
                     <div className="flex items-center justify-between mb-12">
-                      <span style={{fontSize:12,fontWeight:800,padding:'3px 12px',borderRadius:20,background:slot.status==='confirmed'?'#D1FAE5':slot.status==='pending'?'#FEF9C3':'#F3F4F6',color:slot.status==='confirmed'?'#065F46':slot.status==='pending'?'#92400E':'#6B7280'}}>
-                        {slot.status==='confirmed'?'✅ Confirmed':slot.status==='pending'?'⏳ Pending':'—'}
+                      <span style={{fontSize:12,fontWeight:800,padding:'3px 12px',borderRadius:20,
+                        background:slot.booking?.status==='completed'?'#E5E7EB':slot.status==='confirmed'?'#D1FAE5':slot.status==='pending'?'#FEF9C3':'#F3F4F6',
+                        color:slot.booking?.status==='completed'?'#6B7280':slot.status==='confirmed'?'#065F46':slot.status==='pending'?'#92400E':'#6B7280'}}>
+                        {slot.booking?.status==='completed'?'✓ Completed':slot.status==='confirmed'?'✅ Confirmed':slot.status==='pending'?'⏳ Pending':'—'}
                       </span>
                       <span style={{fontSize:13,fontWeight:600,color:tokens.mid}}>{fmtTime(slot.slot_time)}</span>
                     </div>
@@ -281,7 +295,7 @@ export default function TutorCalendarPage() {
                     </div>
 
                     {/* Actions for pending */}
-                    {slot.status==='pending'&&(
+                    {slot.status==='pending' && slot.booking?.status!=='completed' && (
                       <div className="flex gap-8">
                         <button className="btn btn-danger btn-sm" onClick={()=>handleReject(slot)} disabled={saving}>
                           ✗ Reject

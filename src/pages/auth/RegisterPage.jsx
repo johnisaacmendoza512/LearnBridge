@@ -9,8 +9,8 @@ import tokens from '../../lib/tokens';
 
 const MAX_PDF_BYTES   = 20 * 1024 * 1024;
 const PASS_SCORE      = 75;
-const TOTAL_QUESTIONS = 10;
-const EXAM_MINUTES    = 30;
+const TOTAL_QUESTIONS = 1;
+const EXAM_MINUTES    = 10;
 
 const ENGLISH_CONTEXT = `
 PHILIPPINE K-12 ENGLISH CURRICULUM (DepEd):
@@ -235,6 +235,28 @@ export default function RegisterPage() {
     setLoading(true);
     setError('');
     try {
+      // ── Step 1: Upload documents FIRST before signUp (avoids session/RLS issue) ──
+      const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const urls   = {};
+      const docMap = [
+        { key: 'nbi',             file: docs.nbi,             storageName: 'nbi.pdf',              column: 'nbi_clearance_url'    },
+        { key: 'prc',             file: docs.prc,             storageName: 'prc.pdf',              column: 'prc_license_url'      },
+        { key: 'medical',         file: docs.medical,         storageName: 'medical.pdf',          column: 'medical_cert_url'     },
+        { key: 'applicationForm', file: docs.applicationForm, storageName: 'application-form.pdf', column: 'application_form_url' },
+      ];
+
+      for (const doc of docMap) {
+        if (!doc.file) continue;
+        const path = `temp/${tempId}/${doc.storageName}`;
+        const { error: upErr } = await supabase.storage
+          .from('tutor-documents')
+          .upload(path, doc.file, { upsert: true, contentType: doc.file.type || 'application/pdf' });
+        if (upErr) throw new Error(`Failed to upload ${doc.key}: ${upErr.message}`);
+        const { data: urlData } = supabase.storage.from('tutor-documents').getPublicUrl(path);
+        urls[doc.column] = urlData?.publicUrl || path;
+      }
+
+      // ── Step 2: Sign up (sends confirmation email) ──
       const signUpData = await signUp({
         email:    form.email.trim(),
         password: form.password,
@@ -242,37 +264,17 @@ export default function RegisterPage() {
         role,
       });
 
-      // Get user ID directly from signUp result
       const userId = signUpData?.user?.id;
       if (!userId) throw new Error('Registration failed. Please try again.');
 
-      // Update profile fields
+      // ── Step 3: Update profile ──
       await supabase.from('profiles').update({
         location: form.location || null,
         gender:   form.gender   || null,
         bio:      form.bio      || null,
       }).eq('id', userId);
 
-      // Upload documents
-      const urls = {};
-      const docMap = [
-        { key: 'nbi',             file: docs.nbi,             storageName: 'nbi.pdf',              column: 'nbi_clearance_url'    },
-        { key: 'prc',             file: docs.prc,             storageName: 'prc.pdf',              column: 'prc_license_url'      },
-        { key: 'medical',         file: docs.medical,         storageName: 'medical.pdf',          column: 'medical_cert_url'     },
-        { key: 'applicationForm', file: docs.applicationForm, storageName: 'application-form.pdf', column: 'application_form_url' },
-      ];
-      for (const doc of docMap) {
-        if (!doc.file) continue;
-        const path = `${userId}/${doc.storageName}`;
-        const { error: upErr } = await supabase.storage
-          .from('tutor-documents')
-          .upload(path, doc.file, { upsert: true, contentType: 'application/pdf' });
-        if (upErr) throw new Error(`Failed to upload ${doc.key}: ${upErr.message}`);
-        const { data: urlData } = supabase.storage.from('tutor-documents').getPublicUrl(path);
-        urls[doc.column] = urlData?.publicUrl || path;
-      }
-
-      // Save tutors row
+      // ── Step 4: Save tutors row with uploaded document URLs ──
       const strengthSubjects = Object.entries(allResults)
         .filter(([, score]) => score >= PASS_SCORE)
         .map(([subject]) => subject);

@@ -239,8 +239,8 @@ export default function TutorVerificationPage() {
                       <td style={{ fontSize: 12, color: tokens.muted }}>{p.email || '—'}</td>
                       <td>
                         <div className="flex gap-4">
-                          <Badge variant={p.valid_id1_url ? 'success' : 'danger'} style={{ fontSize: 10 }}>ID 1 {p.valid_id1_url ? '✓' : '✗'}</Badge>
-                          <Badge variant={p.valid_id2_url ? 'success' : 'danger'} style={{ fontSize: 10 }}>ID 2 {p.valid_id2_url ? '✓' : '✗'}</Badge>
+                          <Badge variant={p.valid_id_1 ? 'success' : 'danger'} style={{ fontSize: 10 }}>ID 1 {p.valid_id_1 ? '✓' : '✗'}</Badge>
+                          <Badge variant={p.valid_id_2 ? 'success' : 'danger'} style={{ fontSize: 10 }}>ID 2 {p.valid_id_2 ? '✓' : '✗'}</Badge>
                         </div>
                       </td>
                       <td style={{ fontSize: 12, color: tokens.muted }}>{formatDate(p.created_at)}</td>
@@ -448,12 +448,12 @@ export default function TutorVerificationPage() {
             {/* Profile details */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
               {[
-                ['Full Name', selectedParent.full_name  || '—'],
-                ['Email',     selectedParent.email      || '—'],
-                ['Contact',   selectedParent.contact    || 'Not provided'],
-                ['Address',   selectedParent.address    || 'Not provided'],
-                ['Gender',    selectedParent.gender     || '—'],
-                ['Location',  selectedParent.location   || '—'],
+                ['Full Name',       selectedParent.full_name || '—'],
+                ['Email',           selectedParent.email    || '—'],
+                ['Contact Number',  selectedParent.phone    || 'Not provided'],
+                ['Home Address',    selectedParent.location || 'Not provided'],
+                ['Gender',          selectedParent.gender   || '—'],
+                ['Registered',      formatDate(selectedParent.created_at)],
               ].map(([k, v]) => (
                 <div key={k} style={{ background: '#F9FAFB', borderRadius: 8, padding: 12 }}>
                   <div className="text-xs text-muted uppercase font-bold mb-4" style={{ letterSpacing: '0.5px' }}>{k}</div>
@@ -467,8 +467,8 @@ export default function TutorVerificationPage() {
               <div className="text-xs text-muted uppercase font-bold mb-12" style={{ letterSpacing: '0.5px' }}>🪪 Submitted Valid IDs</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {[
-                  { label: '1st Valid ID', url: selectedParent.valid_id1_url, key: 'pid1' },
-                  { label: '2nd Valid ID', url: selectedParent.valid_id2_url, key: 'pid2' },
+                  { label: '1st Valid ID', url: selectedParent.valid_id_1, key: 'pid1' },
+                  { label: '2nd Valid ID', url: selectedParent.valid_id_2, key: 'pid2' },
                 ].map(doc => (
                   <div key={doc.key} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 12, background: doc.url ? '#F0FDF4' : '#FEF2F2', border: `1.5px solid ${doc.url ? '#6EE7B7' : '#FCA5A5'}` }}>
                     <span style={{ fontSize: 24 }}>🪪</span>

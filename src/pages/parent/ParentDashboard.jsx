@@ -156,11 +156,35 @@ export default function ParentDashboard() {
           )}
           <div style={{fontSize:12,opacity:0.75,marginTop:4}}>Available for session payments</div>
         </div>
-        <button onClick={()=>setTopUpModal(true)}
+        <button onClick={()=>{ if(profile?.status!=='approved'){showToast('Your account is pending verification. You can top up after admin approves your ID.','error'); return;} setTopUpModal(true);}}
           style={{background:'rgba(255,255,255,0.2)',border:'2px solid rgba(255,255,255,0.4)',borderRadius:12,padding:'12px 24px',color:'#fff',fontWeight:700,fontSize:14,cursor:'pointer',backdropFilter:'blur(4px)'}}>
           + Top Up
         </button>
       </div>
+
+      {/* Verification pending banner */}
+      {profile?.status === 'pending' && (
+        <div style={{background:'#FEF9C3',border:'1px solid #FDE68A',borderRadius:12,padding:'16px 20px',marginBottom:20,display:'flex',alignItems:'center',gap:14}}>
+          <span style={{fontSize:32}}>🪪</span>
+          <div style={{flex:1}}>
+            <div className="font-jakarta font-bold" style={{fontSize:15,color:'#92400E'}}>ID Verification Pending</div>
+            <p style={{fontSize:13,color:'#92400E',marginTop:4,lineHeight:1.6}}>
+              Your valid ID has been submitted and is currently under review by our admin team. You will be able to book tutors and top up your wallet once your account is approved.
+            </p>
+          </div>
+        </div>
+      )}
+      {profile?.status === 'rejected' && (
+        <div style={{background:'#FEE2E2',border:'1px solid #FECACA',borderRadius:12,padding:'16px 20px',marginBottom:20,display:'flex',alignItems:'center',gap:14}}>
+          <span style={{fontSize:32}}>❌</span>
+          <div style={{flex:1}}>
+            <div className="font-jakarta font-bold" style={{fontSize:15,color:'#DC2626'}}>ID Verification Rejected</div>
+            <p style={{fontSize:13,color:'#DC2626',marginTop:4,lineHeight:1.6}}>
+              Your submitted ID was rejected. Please contact support at packageonthemove@gmail.com for assistance.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid-3 mb-24">

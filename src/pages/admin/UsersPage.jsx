@@ -11,7 +11,7 @@ import FormGroup from '../../components/ui/FormGroup';
 import AppDialog from '../../components/ui/AppDialog';
 import tokens from '../../lib/tokens';
 
-const ROLE_VARIANT = { parent: 'info', tutor: 'success', admin: 'warning' };
+const ROLE_VARIANT = { parent: 'info', tutor: 'gray', admin: 'warning' };
 const TUTOR_STATUS_VARIANT = { pending: 'warning', approved: 'success', rejected: 'danger' };
 
 function StarDisplay({ value, size = 14 }) {
@@ -251,7 +251,10 @@ export default function UsersPage() {
                         background: u.status === 'approved' ? '#D1FAE5' : u.status === 'rejected' ? '#FEE2E2' : '#FEF9C3',
                         color:      u.status === 'approved' ? '#065F46' : u.status === 'rejected' ? '#DC2626' : '#92400E',
                       }}>
-                        {u.status === 'approved' ? '✓ Verified' : u.status === 'rejected' ? '✗ Rejected' : '⏳ Pending'}
+                        {u.role === 'tutor'
+                          ? (u.tutorData?.status === 'approved' ? '✓ Approved' : u.tutorData?.status === 'rejected' ? '✗ Rejected' : '⏳ Pending')
+                          : (u.status === 'approved' ? '✓ Verified' : u.status === 'rejected' ? '✗ Rejected' : '⏳ Pending')
+                        }
                       </span>
                     )}
                     {u.role === 'tutor' && (
@@ -500,12 +503,12 @@ export default function UsersPage() {
             {/* Profile details */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
               {[
-                ['Full Name',      parentDetail.full_name  || '—'],
-                ['Email',          parentDetail.email      || '—'],
-                ['Contact',        parentDetail.contact    || 'Not set'],
-                ['Address',        parentDetail.address    || 'Not set'],
-                ['Gender',         parentDetail.gender     || '—'],
-                ['Location',       parentDetail.location   || '—'],
+                ['Full Name',       parentDetail.full_name || '—'],
+                ['Email',           parentDetail.email     || '—'],
+                ['Contact Number',  parentDetail.phone     || 'Not provided'],
+                ['Home Address',    parentDetail.location  || 'Not provided'],
+                ['Gender',          parentDetail.gender    || '—'],
+                ['Registered',      formatDate ? formatDate(parentDetail.created_at) : parentDetail.created_at?.split('T')[0] || '—'],
               ].map(([k, v]) => (
                 <div key={k} style={{ background: '#F9FAFB', borderRadius: 8, padding: 12 }}>
                   <div className="text-xs text-muted uppercase font-bold mb-4" style={{ letterSpacing: '0.5px' }}>{k}</div>
@@ -519,8 +522,8 @@ export default function UsersPage() {
               <div className="text-xs text-muted uppercase font-bold mb-10" style={{ letterSpacing: '0.5px' }}>🪪 Submitted Valid IDs</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {[
-                  { label: '1st Valid ID', url: parentDetail.valid_id1_url },
-                  { label: '2nd Valid ID', url: parentDetail.valid_id2_url },
+                  { label: '1st Valid ID', url: parentDetail.valid_id_1 },
+                  { label: '2nd Valid ID', url: parentDetail.valid_id_2 },
                 ].map((doc, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 12, background: doc.url ? '#F0FDF4' : '#FEF2F2', border: `1.5px solid ${doc.url ? '#6EE7B7' : '#FCA5A5'}` }}>
                     <span style={{ fontSize: 24 }}>🪪</span>

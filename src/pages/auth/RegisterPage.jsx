@@ -9,8 +9,8 @@ import tokens from '../../lib/tokens';
 
 const MAX_PDF_BYTES   = 20 * 1024 * 1024;
 const PASS_SCORE      = 75;
-const TOTAL_QUESTIONS = 1;
-const EXAM_MINUTES    = 10;
+const TOTAL_QUESTIONS = 10;
+const EXAM_MINUTES    = 30;
 
 const ENGLISH_CONTEXT = `
 PHILIPPINE K-12 ENGLISH CURRICULUM (DepEd):
@@ -93,7 +93,7 @@ function validatePDF(file) {
 }
 
 const STEPS_TUTOR  = ['Terms', 'Info', 'Documents', 'Assessment'];
-const STEPS_PARENT = ['Terms', 'Info'];
+const STEPS_PARENT = ['Terms', 'Info', 'Verification'];
 const STEP_META = {
   Terms:      { icon: '📄' },
   Info:       { icon: '👤' },
@@ -116,13 +116,16 @@ export default function RegisterPage() {
   const [showConfirmPw,setShowConfirmPw]= useState(false);
 
   const [form, setForm] = useState({
-    fullName: '', email: '', password: '', confirmPassword: '',
+    fullName: '', email: '', password: '', confirmPassword: '', phone: '',
     location: '', gender: '', yearsExperience: '', ratePerSession: '',
     specialization: [], bio: '',
   });
 
   const [docs,      setDocs]      = useState({ nbi: null, prc: null, medical: null, applicationForm: null });
   const [docErrors, setDocErrors] = useState({ nbi: '', prc: '', medical: '', applicationForm: '' });
+  const [parentId1,   setParentId1]   = useState(null);
+  const [parentId2,   setParentId2]   = useState(null);
+  const [showMoreIds, setShowMoreIds] = useState(false);
 
   const [examSubjects, setExamSubjects] = useState([]);
   const [examPhase,    setExamPhase]    = useState('select');
@@ -148,7 +151,7 @@ export default function RegisterPage() {
   const handleRoleChange = (r) => {
     setRole(r); setStep(0); setAgreed(false); setError('');
     setShowPassword(false); setShowConfirmPw(false);
-    setForm({ fullName: '', email: '', password: '', confirmPassword: '', location: '', gender: '', yearsExperience: '', ratePerSession: '', specialization: [], bio: '' });
+    setForm({ fullName: '', email: '', password: '', confirmPassword: '', phone: '', location: '', gender: '', yearsExperience: '', ratePerSession: '', specialization: [], bio: '' });
   };
 
   const fmtTime = (s) => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
@@ -176,6 +179,14 @@ export default function RegisterPage() {
       if (role === 'tutor' && form.specialization.length === 0) { setError('Please select at least one subject.'); return; }
       if (step === steps.length - 1) { handleSubmitParent(); return; }
       setStep(s => s + 1); return;
+    }
+    if (currentStep === 'Verification') {
+      if (role === 'parent' && !parentId1) {
+        setError('Please upload at least one valid government ID (PDF only, max 20MB).');
+        return;
+      }
+      handleSubmitParent();
+      return;
     }
     if (currentStep === 'Documents') {
       const errs = {
@@ -305,11 +316,55 @@ export default function RegisterPage() {
     setLoading(true);
     setError('');
     try {
-      await signUp({ email: form.email.trim(), password: form.password, fullName: form.fullName.trim(), role });
+      // Upload valid IDs before signUp (bucket is public, no auth needed)
+      const idUrls = {};
+      const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+      if (parentId1) {
+        const path = `parent-ids/${tempId}/id1.pdf`;
+        const { error: upErr } = await supabase.storage
+          .from('tutor-documents')
+          .upload(path, parentId1, { upsert: true, contentType: 'application/pdf' });
+        if (upErr) throw new Error(`Failed to upload ID: ${upErr.message}`);
+        const { data: urlData } = supabase.storage.from('tutor-documents').getPublicUrl(path);
+        idUrls.valid_id_1 = urlData?.publicUrl || null;
+      }
+
+      if (parentId2) {
+        const path = `parent-ids/${tempId}/id2.pdf`;
+        const { error: upErr } = await supabase.storage
+          .from('tutor-documents')
+          .upload(path, parentId2, { upsert: true, contentType: 'application/pdf' });
+        if (upErr) throw new Error(`Failed to upload 2nd ID: ${upErr.message}`);
+        const { data: urlData } = supabase.storage.from('tutor-documents').getPublicUrl(path);
+        idUrls.valid_id_2 = urlData?.publicUrl || null;
+      }
+
+      // Sign up
+      const signUpData = await signUp({
+        email:    form.email.trim(),
+        password: form.password,
+        fullName: form.fullName.trim(),
+        role,
+      });
+
+      // Save ID URLs, contact info and set status to pending verification
+      if (signUpData?.user?.id) {
+        await supabase.from('profiles').update({
+          valid_id_1: idUrls.valid_id_1 || null,
+          valid_id_2: idUrls.valid_id_2 || null,
+          status:     'pending',
+          phone:      form.phone    || null,
+          gender:     form.gender   || null,
+          location:   form.location || null,
+        }).eq('id', signUpData.user.id);
+      }
+
       await signOut();
       navigate('/login', { state: { message: '📧 Account created! Please check your email and click the confirmation link before signing in.' } });
     } catch (err) {
-      setError(err.message || 'Registration failed.');
+      console.error('Registration error:', err);
+      setError(err?.message || JSON.stringify(err) || 'Registration failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -671,6 +726,27 @@ export default function RegisterPage() {
               <FormGroup label="Email Address">
                 <input className="input" type="email" placeholder="you@email.com" value={form.email} onChange={e => set('email', e.target.value)} />
               </FormGroup>
+              {role === 'parent' && (
+                <>
+                  <div className="grid-2">
+                    <FormGroup label="Contact Number">
+                      <input className="input" type="tel" placeholder="e.g. 09171234567" maxLength={11}
+                        value={form.phone||''} onChange={e => set('phone', e.target.value.replace(/\D/g,''))} />
+                    </FormGroup>
+                    <FormGroup label="Gender">
+                      <select className="select" value={form.gender||''} onChange={e => set('gender', e.target.value)}>
+                        <option value="">Select gender</option>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                        <option value="Rather not say">Rather not say</option>
+                      </select>
+                    </FormGroup>
+                  </div>
+                  <FormGroup label="Home Address">
+                    <input className="input" placeholder="e.g. 123 Rizal St, Quezon City" value={form.location||''} onChange={e => set('location', e.target.value)} />
+                  </FormGroup>
+                </>
+              )}
               {role === 'tutor' && (
                 <>
                   <div className="grid-2">
@@ -757,6 +833,85 @@ export default function RegisterPage() {
             </>
           )}
 
+          {currentStep === 'Verification' && role === 'parent' && (
+            <>
+              <h2 className="font-jakarta font-extrabold mb-4" style={{ fontSize: 20 }}>🪪 Identity Verification</h2>
+              <p className="text-sm text-muted mb-4">Upload up to 2 valid government-issued IDs. PDF only, max 20MB each.</p>
+
+              {/* Valid ID examples */}
+              <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 10, padding: '12px 16px', marginBottom: 20, fontSize: 13, color: '#1D4ED8' }}>
+                <div style={{ fontWeight: 700, marginBottom: 6 }}>📋 Accepted IDs — Primary</div>
+                <div style={{ fontSize: 12, color: '#1D4ED8', lineHeight: 1.8 }}>
+                  PhilSys ID · Philippine Passport · Driver's License · SSS/UMID Card · GSIS ID · PRC ID · Voter's ID · Postal ID
+                </div>
+                {!showMoreIds ? (
+                  <button type="button" onClick={() => setShowMoreIds(true)}
+                    style={{ marginTop: 6, fontSize: 12, color: tokens.primary, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, padding: 0, textDecoration: 'underline' }}>
+                    See more valid IDs ▼
+                  </button>
+                ) : (
+                  <div>
+                    <div style={{ fontWeight: 700, marginTop: 10, marginBottom: 6 }}>📋 Secondary IDs</div>
+                    <div style={{ fontSize: 12, color: '#1D4ED8', lineHeight: 1.8 }}>
+                      Barangay ID · TIN ID · PhilHealth ID · NBI Clearance · School ID · Company ID · Senior Citizen ID · PWD ID · Police Clearance · OWWA ID
+                    </div>
+                    <button type="button" onClick={() => setShowMoreIds(false)}
+                      style={{ marginTop: 6, fontSize: 12, color: tokens.primary, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, padding: 0, textDecoration: 'underline' }}>
+                      Show less ▲
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* ID Upload 1 */}
+              {[
+                { label: '1st Valid ID', file: parentId1, setFile: setParentId1, required: true },
+                { label: '2nd Valid ID', file: parentId2, setFile: setParentId2, required: false },
+              ].map(({ label, file, setFile, required }) => (
+                <div key={label} style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+                    {label} {required && <span style={{ color: '#DC2626' }}>*</span>}
+                    {!required && <span style={{ fontSize: 11, color: tokens.muted, fontWeight: 400 }}> (optional)</span>}
+                  </div>
+                  <label style={{
+                    display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px',
+                    borderRadius: 10, border: `2px dashed ${file ? tokens.success : tokens.border}`,
+                    background: file ? '#F0FDF4' : '#FAFAFA', cursor: 'pointer', transition: 'all 0.15s'
+                  }}>
+                    <input type="file" accept=".pdf,application/pdf" style={{ display: 'none' }}
+                      onChange={e => {
+                        const f = e.target.files[0];
+                        e.target.value = '';
+                        if (!f) return;
+                        if (f.type !== 'application/pdf') { setError('Please upload a PDF file only.'); return; }
+                        if (f.size > 20 * 1024 * 1024) { setError('File too large. Maximum size is 20MB.'); return; }
+                        setFile(f);
+                        setError('');
+                      }}
+                    />
+                    <span style={{ fontSize: 24 }}>{file ? '✅' : '📄'}</span>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: file ? '#065F46' : tokens.mid }}>
+                        {file ? file.name : `Click to upload ${label}`}
+                      </div>
+                      <div style={{ fontSize: 11, color: tokens.muted }}>PDF only · Max 20MB</div>
+                    </div>
+                    {file && (
+                      <button type="button" onClick={e => { e.preventDefault(); setFile(null); }}
+                        style={{ marginLeft: 'auto', background: '#FEE2E2', border: 'none', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: '#DC2626', fontSize: 12 }}>
+                        Remove
+                      </button>
+                    )}
+                  </label>
+                </div>
+              ))}
+
+              <div style={{ background: '#FEF9C3', border: '1px solid #FDE68A', borderRadius: 10, padding: '10px 14px', fontSize: 12, color: '#92400E', lineHeight: 1.6 }}>
+                ⚠️ Your ID will be used for identity verification purposes only and will not be shared with third parties.
+              </div>
+            </>
+          )}
+
           {currentStep === 'Documents' && (
             <>
               <h2 className="font-jakarta font-extrabold mb-4" style={{ fontSize: 20 }}>📁 Upload Documents</h2>
@@ -808,7 +963,7 @@ export default function RegisterPage() {
           <div className="flex gap-10 mt-20">
             {step > 0 && <button type="button" className="btn btn-ghost" onClick={() => { setStep(s => s - 1); setError(''); }}>← Back</button>}
             <button type="button" className="btn btn-primary btn-full btn-lg" onClick={handleNext} disabled={loading}>
-              {loading ? <Spinner /> : currentStep === 'Documents' ? 'Next: AI Assessment →' : currentStep === steps[steps.length - 1] ? 'Create Account' : 'Continue →'}
+              {loading ? <Spinner /> : currentStep === 'Documents' ? 'Next: AI Assessment →' : currentStep === 'Verification' ? 'Create Account' : currentStep === steps[steps.length - 1] ? 'Create Account' : 'Continue →'}
             </button>
           </div>
           <p className="text-sm text-muted mt-20 text-center">Already have an account? <Link to="/login" style={{ color: tokens.primary, fontWeight: 600 }}>Sign In</Link></p>

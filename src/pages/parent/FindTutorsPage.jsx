@@ -83,7 +83,7 @@ function TutorReviews({ tutorId }) {
 }
 
 export default function FindTutorsPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { tutors, loading } = useTutors(); // fetches nbi_clearance_url, prc_license_url etc from tutors table
   const { students } = useStudents();
   const { createBooking, bookings } = useBookings();
@@ -321,6 +321,10 @@ export default function FindTutorsPage() {
                     {activeTutorIds.has(t.id) ? (
                       <button className="btn btn-sm" disabled style={{background:'#FEF9C3',color:'#92400E',border:'1px solid #FDE68A',cursor:'not-allowed',fontWeight:700}}>
                         ⏳ Ongoing Session
+                      </button>
+                    ) : profile?.status !== 'approved' ? (
+                      <button className="btn btn-sm" disabled style={{background:'#FEE2E2',color:'#DC2626',border:'1px solid #FECACA',cursor:'not-allowed',fontWeight:700}}>
+                        🪪 Verify ID First
                       </button>
                     ) : (
                       <button className="btn btn-primary btn-sm" onClick={()=>{setBooking(t);setStep('details');}} disabled={students.length===0}>

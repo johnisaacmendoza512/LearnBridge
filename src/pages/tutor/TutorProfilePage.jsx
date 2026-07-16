@@ -118,6 +118,16 @@ export default function TutorProfilePage() {
 
   // ── Save profile changes ──────────────────────────────────────────
   const handleSave = async () => {
+    // Validate full name - alphabets and spaces only
+    if (form.full_name && !/^[a-zA-Z\s]+$/.test(form.full_name)) {
+      setError('Full name must contain letters and spaces only.');
+      return;
+    }
+    // Validate rate - numbers only
+    if (form.rate_per_session && isNaN(Number(form.rate_per_session))) {
+      setError('Proposed rate must be a valid number.');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -287,7 +297,12 @@ export default function TutorProfilePage() {
               <h3 className="font-jakarta font-bold mb-20" style={{ fontSize: 16 }}>Edit Profile</h3>
 
               <FormGroup label="Full Name">
-                <input className="input" value={form.full_name} onChange={e => set('full_name', e.target.value)} placeholder="Your full name" />
+                <input className="input" value={form.full_name}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (/^[a-zA-Z\s]*$/.test(val)) set('full_name', val);
+                  }}
+                  placeholder="Your full name" />
               </FormGroup>
 
               <FormGroup label="Bio" hint="Tell parents about your teaching experience and style.">
@@ -319,29 +334,28 @@ export default function TutorProfilePage() {
                   <input className="input" type="number" min="0" value={form.years_experience} onChange={e => set('years_experience', e.target.value)} placeholder="e.g. 5" />
                 </FormGroup>
                 <FormGroup label="Proposed Rate (₱/session)" hint="Admin sets your final approved rate.">
-                  <input className="input" type="number" min="0" value={form.rate_per_session} onChange={e => set('rate_per_session', e.target.value)} placeholder="e.g. 350" />
+                  <input className="input" type="number" min="0" value={form.rate_per_session}
+                    onChange={e => {
+                      const val = e.target.value.replace(/[^0-9]/g, '');
+                      set('rate_per_session', val);
+                    }}
+                    placeholder="e.g. 350" />
                 </FormGroup>
               </div>
 
-              <FormGroup label="Specialization">
+              <FormGroup label="Specialization" hint="Based on your AI certification exam. Cannot be changed.">
                 <div className="flex gap-10">
-                  {['english', 'mathematics'].map(s => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => toggleSpec(s)}
-                      style={{
-                        flex: 1, padding: '10px 16px', borderRadius: 10, cursor: 'pointer',
-                        border: `2px solid ${form.specialization.includes(s) ? tokens.primary : tokens.border}`,
-                        background: form.specialization.includes(s) ? tokens.primaryLight : '#FAFAFA',
-                        color: form.specialization.includes(s) ? tokens.primary : tokens.mid,
-                        fontWeight: 600, fontSize: 14, textTransform: 'capitalize',
-                        transition: 'all 0.15s',
-                      }}
-                    >
-                      {form.specialization.includes(s) ? '✓ ' : ''}{s}
-                    </button>
-                  ))}
+                  {(tutorData?.specialization || []).length > 0 ? (tutorData.specialization.map(s => (
+                    <span key={s} style={{
+                      flex: 1, padding: '10px 16px', borderRadius: 10, textAlign: 'center',
+                      border: `2px solid ${tokens.primary}`,
+                      background: tokens.primaryLight,
+                      color: tokens.primary,
+                      fontWeight: 600, fontSize: 14, textTransform: 'capitalize',
+                    }}>✓ {s}</span>
+                  ))) : (
+                    <span style={{fontSize:13,color:tokens.muted}}>No specialization set</span>
+                  )}
                 </div>
               </FormGroup>
 
@@ -434,15 +448,22 @@ export default function TutorProfilePage() {
                 <div className="text-xs text-muted uppercase font-bold mb-8" style={{ letterSpacing: '0.5px' }}>Submitted Documents</div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {[
-                    { label: 'NBI Clearance',      ok: !!tutorData?.nbi_clearance_url },
-                    { label: 'PRC License',         ok: !!tutorData?.prc_license_url   },
-                    { label: 'Medical Certificate', ok: !!tutorData?.medical_cert_url   },
-                    { label: 'Resume / CV',         ok: !!tutorData?.resume_url         },
+                    { label: 'NBI Clearance',      ok: !!tutorData?.nbi_clearance_url,    url: tutorData?.nbi_clearance_url    },
+                    { label: 'PRC License',         ok: !!tutorData?.prc_license_url,      url: tutorData?.prc_license_url      },
+                    { label: 'Medical Certificate', ok: !!tutorData?.medical_cert_url,     url: tutorData?.medical_cert_url     },
+                    { label: 'Application Form',    ok: !!tutorData?.application_form_url, url: tutorData?.application_form_url },
                   ].map(doc => (
-                    <Badge key={doc.label} variant={doc.ok ? 'success' : 'warning'}>
-                      <Icon name={doc.ok ? 'check' : 'upload'} size={9} color={doc.ok ? '#065F46' : '#92400E'} />
-                      {doc.label}
-                    </Badge>
+                    doc.url ? (
+                      <a key={doc.label} href={doc.url} target="_blank" rel="noopener noreferrer" style={{textDecoration:'none'}}>
+                        <Badge variant="success">
+                          <Icon name="check" size={9} color="#065F46" /> {doc.label} ↗
+                        </Badge>
+                      </a>
+                    ) : (
+                      <Badge key={doc.label} variant="warning">
+                        <Icon name="upload" size={9} color="#92400E" /> {doc.label}
+                      </Badge>
+                    )
                   ))}
                 </div>
               </div>

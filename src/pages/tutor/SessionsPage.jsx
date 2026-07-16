@@ -236,7 +236,7 @@ Return ONLY a valid JSON array:
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
           body: JSON.stringify({
             model: 'gpt-4o-mini',
-            max_tokens: 6000,
+            max_tokens: 8000,
             messages: [{ role: 'user', content }],
           }),
         });
@@ -849,6 +849,22 @@ Return ONLY a valid JSON array:
   }
 
   // ── Main canvas view ─────────────────────────────────────────────────────
+
+  // Convert URLs in text to clickable links
+  const linkify = (text) => {
+    if (!text) return null;
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = text.split(urlRegex);
+    return parts.map((part, i) =>
+      urlRegex.test(part) ? (
+        <a key={i} href={part} target="_blank" rel="noopener noreferrer"
+          style={{color:'#1D4ED8',textDecoration:'underline',fontWeight:600,wordBreak:'break-all'}}>
+          {part}
+        </a>
+      ) : part
+    );
+  };
+
   return (
     <div className="fade-in">
       <Toast msg={toast?.msg} type={toast?.type} onClose={()=>setToast(null)}/>
@@ -1029,7 +1045,7 @@ Return ONLY a valid JSON array:
                 </div>
               ) : (
                 <div>
-                  <div style={{fontSize:13,lineHeight:1.7,color:'#92400E',fontWeight:500}}>{ann.message}</div>
+                  <div style={{fontSize:13,lineHeight:1.7,color:'#92400E',fontWeight:500}}>{linkify(ann.message)}</div>
                   <div style={{fontSize:11,color:'#B45309',marginTop:4}}>
                     Posted {new Date(ann.created_at).toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'})}
                     {ann.updated_at!==ann.created_at&&' · edited'}

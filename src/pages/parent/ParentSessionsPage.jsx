@@ -360,6 +360,22 @@ export default function ParentSessionsPage() {
   const totalQuizzes = modules.reduce((a,m)=>a+(m.quizzes?.length||0),0);
   const passedQuizzes = modules.reduce((a,m)=>a+(m.quizzes?.filter(q=>q.bestAttempt?.passed).length||0),0);
 
+
+  // Convert URLs in text to clickable links
+  const linkify = (text) => {
+    if (!text) return null;
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = text.split(urlRegex);
+    return parts.map((part, i) =>
+      urlRegex.test(part) ? (
+        <a key={i} href={part} target="_blank" rel="noopener noreferrer"
+          style={{color:'#1D4ED8',textDecoration:'underline',fontWeight:600,wordBreak:'break-all'}}>
+          {part}
+        </a>
+      ) : part
+    );
+  };
+
   return (
     <div className="fade-in">
       <Toast msg={toast?.msg} type={toast?.type} onClose={()=>setToast(null)}/>
@@ -390,7 +406,7 @@ export default function ParentSessionsPage() {
                 <div style={{fontSize:11,fontWeight:700,color:'#B45309',marginBottom:4,textTransform:'uppercase',letterSpacing:'0.5px'}}>
                   Announcement from Tutor
                 </div>
-                <div style={{fontSize:14,lineHeight:1.7,color:'#78350F',fontWeight:500}}>{ann.message}</div>
+                <div style={{fontSize:14,lineHeight:1.7,color:'#78350F',fontWeight:500}}>{linkify(ann.message)}</div>
                 <div style={{fontSize:11,color:'#B45309',marginTop:6}}>
                   📅 {new Date(ann.created_at).toLocaleDateString('en-PH',{month:'long',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'})}
                 </div>

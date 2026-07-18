@@ -22,6 +22,7 @@ import FindTutorsPage     from './pages/parent/FindTutorsPage';
 import MessagesPage       from './pages/parent/MessagesPage';
 import BookingsPage       from './pages/parent/BookingsPage';
 import ParentSessionsPage from './pages/parent/ParentSessionsPage';
+import ParentWalletPage   from './pages/parent/ParentWalletPage';
 
 // Tutor
 import TutorDashboard    from './pages/tutor/TutorDashboard';
@@ -44,6 +45,12 @@ import TransactionsPage      from './pages/admin/TransactionsPage';
 import AdminSessionsPage     from './pages/admin/AdminSessionsPage';
 
 // ── Role-based routers ──────────────────────────────────────────────────────
+function RoleWallet() {
+  const { profile } = useAuth();
+  if (profile?.role === 'tutor') return <WalletPage />;
+  return <ParentWalletPage />;
+}
+
 function RoleDashboard() {
   const { profile } = useAuth();
   if (profile?.role === 'admin') return <AdminDashboard />;
@@ -113,7 +120,6 @@ function AppRoutes() {
           {/* Tutor-only */}
           <Route element={<ProtectedRoute allowedRoles={['tutor']} />}>
             <Route path="/certification" element={<CertificationPage />} />
-            <Route path="/wallet"        element={<WalletPage />}        />
             <Route path="/calendar"      element={<TutorCalendarPage />} />
           </Route>
 
@@ -130,6 +136,7 @@ function AppRoutes() {
           <Route path="/sessions"      element={<RoleSessions />}     />
           <Route path="/question-bank" element={<RoleQuestionBank />} />
           <Route path="/messages"      element={<RoleMessages />}     />
+          <Route path="/wallet"        element={<RoleWallet />}       />
 
           {/* Legacy redirect */}
           <Route path="/progress" element={<Navigate to="/sessions" replace />} />

@@ -7,13 +7,14 @@ import tokens from '../../lib/tokens';
 
 const navItems = {
   parent: [
-    { to: '/dashboard',   label: 'Dashboard',   icon: 'home'     },
-    { to: '/my-profile',  label: 'My Profile',  icon: 'user'     },
-    { to: '/my-children', label: 'My Children', icon: 'users'    },
-    { to: '/find-tutors', label: 'Find Tutors', icon: 'search'   },
-    { to: '/bookings',    label: 'Bookings',    icon: 'calendar' },
-    { to: '/sessions',    label: 'Sessions',    icon: 'book'     },
-    { to: '/messages',    label: 'Messages',    icon: 'message', badge: true },
+    { to: '/dashboard',     label: 'Dashboard',    icon: 'home'      },
+    { to: '/my-children',   label: 'My Children',  icon: 'users'     },
+    { to: '/find-tutors',   label: 'Find Tutors',  icon: 'search'    },
+    { to: '/bookings',      label: 'Bookings',     icon: 'calendar'  },
+    { to: '/wallet',        label: 'Wallet',       icon: 'wallet'    },
+    { to: '/sessions',      label: 'Sessions',     icon: 'book'      },
+    { to: '/my-profile',    label: 'My Profile',   icon: 'user'      },
+    { to: '/messages',      label: 'Messages',     icon: 'message',  badge: true },
   ],
   tutor: [
     { to: '/dashboard',     label: 'Dashboard',    icon: 'home'      },
@@ -24,7 +25,6 @@ const navItems = {
     { to: '/question-bank', label: 'Question Bank',icon: 'clipboard' },
     { to: '/wallet',        label: 'Wallet',       icon: 'wallet'    },
     { to: '/messages',      label: 'Messages',     icon: 'message',  badge: true },
-    { to: '/calendar', label: 'Calendar', icon: 'calendar' },
   ],
   admin: [
     { to: '/dashboard',          label: 'Dashboard',    icon: 'home'      },
@@ -87,6 +87,7 @@ export default function Sidebar() {
           >
             <Icon name={item.icon} size={16} color="currentColor" />
             <span style={{ flex: 1 }}>{item.label}</span>
+            {/* Unread announcement badge — only for parent/tutor Messages link */}
             {item.badge && unreadCount > 0 && (
               <div style={{
                 minWidth: 18, height: 18, borderRadius: 9,

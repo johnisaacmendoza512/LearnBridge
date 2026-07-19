@@ -319,7 +319,7 @@ Return ONLY a valid JSON array:
     try {
       // Fetch source modules with all children
       const {data:srcMods} = await supabase.from('session_modules').select('*').eq('booking_id', sourceBookingId).order('module_number');
-      if (!srcMods||srcMods.length===0) { showToast('No modules found in that booking.','error'); return; }
+      if (!srcMods||srcMods.length===0) { showToast('No sessions found in that booking.','error'); return; }
 
       const srcModIds = srcMods.map(m=>m.id);
       const [{data:srcSubs},{data:srcMats},{data:srcQuizzes}] = await Promise.all([
@@ -471,7 +471,7 @@ Return ONLY a valid JSON array:
 
   // ── Module CRUD ──────────────────────────────────────────────────────────
   const saveModule = async () => {
-    if (!modForm.title.trim()) { showToast('Module title is required.','error'); return; }
+    if (!modForm.title.trim()) { showToast('Session title is required.','error'); return; }
     setSavingMod(true);
     try {
       if (modModal==='create') {
@@ -495,7 +495,7 @@ Return ONLY a valid JSON array:
   };
 
   const deleteModule = async (mod) => {
-    if (!window.confirm(`Delete Module ${mod.module_number}: "${mod.title}"? Everything inside will be deleted.`)) return;
+    if (!window.confirm(`Delete Session ${mod.module_number}: "${mod.title}"? Everything inside will be deleted.`)) return;
     const {error} = await supabase.from('session_modules').delete().eq('id',mod.id);
     if (error) { showToast(`Failed: ${error.message}`,'error'); return; }
     showToast('Module deleted.'); fetchAll(selBooking.id);
@@ -817,18 +817,53 @@ Return ONLY a valid JSON array:
                         </button>
                       </div>
                     </div>
-                    <div style={{display:'flex',flexDirection:'column',gap:10,maxHeight:400,overflowY:'auto'}}>
+                    <div style={{display:'flex',flexDirection:'column',gap:10,maxHeight:500,overflowY:'auto'}}>
                       {aiPreview.map((q,i)=>(
                         <div key={i} style={{background:'#F9FAFB',borderRadius:10,padding:14,border:`1px solid ${tokens.border}`}}>
-                          <div className="font-semibold mb-8" style={{fontSize:13}}>Q{i+1}. {q.question_text}</div>
-                          <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                          {/* Question text - editable */}
+                          <div style={{fontSize:11,color:tokens.muted,marginBottom:4,fontWeight:600}}>Q{i+1}. Question</div>
+                          <textarea
+                            className="input"
+                            value={q.question_text}
+                            onChange={e=>setAiPreview(prev=>prev.map((pq,pi)=>pi===i?{...pq,question_text:e.target.value}:pq))}
+                            style={{fontSize:13,marginBottom:10,minHeight:60,resize:'vertical',width:'100%'}}
+                          />
+                          {/* Options - editable */}
+                          <div style={{fontSize:11,color:tokens.muted,marginBottom:6,fontWeight:600}}>Options (click ✓ to set correct answer)</div>
+                          <div style={{display:'flex',flexDirection:'column',gap:6}}>
                             {q.options.map((opt,oi)=>(
-                              <div key={oi} style={{fontSize:12,padding:'4px 8px',borderRadius:6,background:oi===q.correct_index?'#D1FAE5':'#fff',color:oi===q.correct_index?'#065F46':tokens.mid,border:`1px solid ${oi===q.correct_index?'#6EE7B7':tokens.border}`,fontWeight:oi===q.correct_index?700:400}}>
-                                {String.fromCharCode(65+oi)}. {opt} {oi===q.correct_index?'✓':''}
+                              <div key={oi} style={{display:'flex',alignItems:'center',gap:8}}>
+                                <button
+                                  type="button"
+                                  onClick={()=>setAiPreview(prev=>prev.map((pq,pi)=>pi===i?{...pq,correct_index:oi}:pq))}
+                                  style={{width:28,height:28,borderRadius:'50%',flexShrink:0,border:`2px solid ${oi===q.correct_index?'#22C55E':'#D1D5DB'}`,background:oi===q.correct_index?'#22C55E':'#fff',color:oi===q.correct_index?'#fff':'#9CA3AF',fontSize:12,fontWeight:800,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                                  {oi===q.correct_index?'✓':String.fromCharCode(65+oi)}
+                                </button>
+                                <input
+                                  className="input"
+                                  value={opt}
+                                  onChange={e=>setAiPreview(prev=>prev.map((pq,pi)=>pi===i?{...pq,options:pq.options.map((o,opi)=>opi===oi?e.target.value:o)}:pq))}
+                                  style={{fontSize:12,flex:1,background:oi===q.correct_index?'#F0FDF4':'#fff',border:`1px solid ${oi===q.correct_index?'#6EE7B7':'#E5E7EB'}`}}
+                                />
+                                {q.options.length > 2 && (
+                                  <button type="button"
+                                    onClick={()=>setAiPreview(prev=>prev.map((pq,pi)=>pi===i?{...pq,options:pq.options.filter((_,fi)=>fi!==oi),correct_index:pq.correct_index>=oi&&pq.correct_index>0?pq.correct_index-1:pq.correct_index}:pq))}
+                                    style={{width:24,height:24,borderRadius:'50%',flexShrink:0,border:'none',background:'#FEE2E2',color:'#DC2626',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>
+                                    ✕
+                                  </button>
+                                )}
                               </div>
                             ))}
                           </div>
-                          <div style={{display:'flex',alignItems:'center',gap:8,marginTop:8}}>
+                          {/* Add option button */}
+                          {q.options.length < 6 && (
+                            <button type="button"
+                              onClick={()=>setAiPreview(prev=>prev.map((pq,pi)=>pi===i?{...pq,options:[...pq.options,'']}:pq))}
+                              style={{marginTop:8,fontSize:12,fontWeight:600,color:tokens.primary,background:tokens.primaryLight,border:`1px dashed ${tokens.primary}`,borderRadius:8,padding:'6px 14px',cursor:'pointer',width:'100%'}}>
+                              + Add Option {String.fromCharCode(65+q.options.length)}
+                            </button>
+                          )}
+                          <div style={{display:'flex',alignItems:'center',gap:8,marginTop:10}}>
                             <span style={{fontSize:11,color:tokens.muted}}>{q.points||1} pt</span>
                             <button onClick={()=>setAiPreview(prev=>prev.filter((_,pi)=>pi!==i))} style={{marginLeft:'auto',background:'#FEE2E2',border:'none',borderRadius:6,padding:'3px 8px',cursor:'pointer',color:'#DC2626',fontSize:11}}>Remove</button>
                           </div>
@@ -896,7 +931,7 @@ Return ONLY a valid JSON array:
       {/* ── Tabs ── */}
       <div className="flex gap-0 mb-20" style={{borderBottom:`2px solid ${tokens.border}`}}>
         {[
-          {key:'modules', label:'📖 Modules & Quizzes', count:modules.length},
+          {key:'modules', label:'📖 Sessions & Quizzes', count:modules.length},
           {key:'progress', label:'📊 Student Progress', count:quizAttempts.length+matViews.length},
         ].map(t=>(
           <button key={t.key} onClick={()=>setActiveTab(t.key)}
@@ -926,7 +961,7 @@ Return ONLY a valid JSON array:
                 return (
                   <div key={mod.id} className="card" style={{overflow:'hidden'}}>
                     <div style={{padding:'12px 20px',background:tokens.primaryLight,borderBottom:`1px solid ${tokens.border}`}}>
-                      <div className="font-jakarta font-bold" style={{fontSize:14}}>Module {mod.module_number}: {mod.title}</div>
+                      <div className="font-jakarta font-bold" style={{fontSize:14}}>Session {mod.module_number}: {mod.title}</div>
                     </div>
                     <div style={{padding:'16px 20px'}}>
                       {modQuizzes.map(quiz=>{
@@ -998,7 +1033,7 @@ Return ONLY a valid JSON array:
                       if (viewedMats.length===0) return null;
                       return (
                         <div key={mod.id} style={{marginBottom:14}}>
-                          <div style={{fontSize:12,fontWeight:700,color:tokens.muted,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.5px'}}>Module {mod.module_number}: {mod.title}</div>
+                          <div style={{fontSize:12,fontWeight:700,color:tokens.muted,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.5px'}}>Session {mod.module_number}: {mod.title}</div>
                           {viewedMats.map(mat=>{
                             const view = matViews.find(v=>v.material_id===mat.id);
                             return (
@@ -1093,7 +1128,7 @@ Return ONLY a valid JSON array:
                 <div style={{padding:'14px 20px',background:mod.status==='published'?tokens.primaryLight:'#F9FAFB',display:'flex',alignItems:'center',gap:12,cursor:'pointer'}} onClick={()=>toggle(mod.id)}>
                   <Icon name={expanded[mod.id]?'chevronDown':'chevronRight'} size={16} color={tokens.muted}/>
                   <div style={{flex:1}}>
-                    <div className="font-jakarta font-bold" style={{fontSize:15}}>Module {mod.module_number}: {mod.title}</div>
+                    <div className="font-jakarta font-bold" style={{fontSize:15}}>Session {mod.module_number}: {mod.title}</div>
                     {mod.description&&<div className="text-xs text-muted mt-2">{mod.description}</div>}
                     <div className="flex gap-8 mt-4">
                       <span style={{fontSize:11,color:tokens.muted}}>{(mod.moduleMaterials?.length||0)+(mod.subtopics?.reduce((a,s)=>a+(s.materials?.length||0),0)||0)} materials</span>
@@ -1190,9 +1225,9 @@ Return ONLY a valid JSON array:
       </>)}
 
       {/* Module Modal */}
-      <Modal open={!!modModal} onClose={()=>setModModal(null)} title={modModal==='create'?'📖 Create Module':'✏️ Edit Module'}
+      <Modal open={!!modModal} onClose={()=>setModModal(null)} title={modModal==='create'?'📖 Create Session':'✏️ Edit Session'}
         footer={<><button className="btn btn-ghost" onClick={()=>setModModal(null)}>Cancel</button><button className="btn btn-primary" onClick={saveModule} disabled={savingMod}>{savingMod?'Saving...':modModal==='create'?'Create Module':'Save Changes'}</button></>}>
-        <FormGroup label="Module Title"><input className="input" placeholder="e.g. Introduction to Fractions" value={modForm.title} onChange={e=>setModForm(f=>({...f,title:e.target.value}))}/></FormGroup>
+        <FormGroup label="Session Title"><input className="input" placeholder="e.g. Session 1 - Introduction to Fractions" value={modForm.title} onChange={e=>setModForm(f=>({...f,title:e.target.value}))}/></FormGroup>
         <FormGroup label="Description (Optional)"><textarea className="textarea" placeholder="Brief description..." value={modForm.description} onChange={e=>setModForm(f=>({...f,description:e.target.value}))} style={{minHeight:80}}/></FormGroup>
       </Modal>
 
@@ -1255,7 +1290,7 @@ Return ONLY a valid JSON array:
       <Modal open={!!quizModal} onClose={()=>setQuizModal(null)} title={quizModal?.quiz?'✏️ Edit Quiz':'📝 Add Quiz to Module'}
         footer={<><button className="btn btn-ghost" onClick={()=>setQuizModal(null)}>Cancel</button><button className="btn btn-primary" onClick={saveQuiz} disabled={savingQuiz}>{savingQuiz?'Saving...':quizModal?.quiz?'Save Changes':'Create Quiz'}</button></>}>
         <div style={{background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:10,padding:'10px 14px',marginBottom:16,fontSize:13,color:'#1D4ED8'}}>
-          📌 This quiz will appear inside <strong>Module {quizModal?.module?.module_number}: {quizModal?.module?.title}</strong>
+          📌 This quiz will appear inside <strong>Session {quizModal?.module?.module_number}: {quizModal?.module?.title}</strong>
         </div>
         <FormGroup label="Quiz Type">
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>

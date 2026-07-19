@@ -429,7 +429,7 @@ export default function ParentSessionsPage() {
                 <div style={{padding:'16px 20px',background:tokens.primaryLight,display:'flex',alignItems:'center',gap:12,cursor:'pointer'}} onClick={()=>toggle(mod.id)}>
                   <Icon name={expanded[mod.id]?'chevronDown':'chevronRight'} size={16} color={tokens.primary}/>
                   <div style={{flex:1}}>
-                    <div className="font-jakarta font-bold" style={{fontSize:15,color:tokens.dark}}>Module {mod.module_number}: {mod.title}</div>
+                    <div className="font-jakarta font-bold" style={{fontSize:15,color:tokens.dark}}>Session {mod.module_number}: {mod.title}</div>
                     {mod.description&&<div className="text-xs text-muted mt-2">{mod.description}</div>}
                     <div className="flex gap-10 mt-4">
                       <span style={{fontSize:11,color:tokens.muted}}>{(mod.moduleMaterials?.length||0)+(mod.subtopics?.reduce((a,s)=>a+(s.materials?.length||0),0)||0)} materials</span>

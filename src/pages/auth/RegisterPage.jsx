@@ -8,8 +8,8 @@ import Spinner from '../../components/ui/Spinner';
 import tokens from '../../lib/tokens';
 
 const MAX_PDF_BYTES   = 20 * 1024 * 1024;
-const PASS_SCORE      = 75;
-const TOTAL_QUESTIONS = 10;
+const PASS_SCORE      = 70;
+const TOTAL_QUESTIONS = 100;
 const EXAM_MINUTES    = 30;
 
 const ENGLISH_CONTEXT = `
@@ -130,6 +130,7 @@ export default function RegisterPage() {
   const [examSubjects, setExamSubjects] = useState([]);
   const [examPhase,    setExamPhase]    = useState('select');
   const [currentSubj,  setCurrentSubj]  = useState(null);
+  const [noAnswerModal, setNoAnswerModal] = useState(false);
   const [questions,    setQuestions]    = useState([]);
   const [currentQ,     setCurrentQ]     = useState(0);
   const [answers,      setAnswers]      = useState({});
@@ -278,33 +279,41 @@ export default function RegisterPage() {
       const userId = signUpData?.user?.id;
       if (!userId) throw new Error('Registration failed. Please try again.');
 
-      // ── Step 3: Update profile ──
-      await supabase.from('profiles').update({
+      // ── Step 3: Update profile (RLS open policy allows this without session) ──
+      const { error: profErr } = await supabase.from('profiles').update({
         location: form.location || null,
         gender:   form.gender   || null,
         bio:      form.bio      || null,
       }).eq('id', userId);
+      if (profErr) console.error('Profile update error:', profErr.message);
 
-      // ── Step 4: Save tutors row with uploaded document URLs ──
+      // ── Step 4: Save tutors row (trigger already created it, now update) ──
       const strengthSubjects = Object.entries(allResults)
         .filter(([, score]) => score >= PASS_SCORE)
         .map(([subject]) => subject);
 
-      await supabase.from('tutors').upsert({
+      // Small delay to ensure trigger has created the row
+      await new Promise(r => setTimeout(r, 1000));
+
+      const { error: tutorErr } = await supabase.from('tutors').upsert({
         id:                    userId,
         years_experience:      Number(form.yearsExperience) || 0,
         rate_per_session:      Number(form.ratePerSession)  || null,
-        specialization:        strengthSubjects.length > 0 ? strengthSubjects : form.specialization,
+        specialization:        strengthSubjects.length > 0 ? strengthSubjects : (form.specialization || []),
         certification_scores:  Object.keys(allResults).length > 0 ? allResults : null,
         nbi_clearance_url:     urls['nbi_clearance_url']    || null,
         prc_license_url:       urls['prc_license_url']      || null,
         medical_cert_url:      urls['medical_cert_url']     || null,
         application_form_url:  urls['application_form_url'] || null,
         status:                'pending',
-      });
+      }, { onConflict: 'id' });
+
+      if (tutorErr) console.error('Tutor upsert error:', tutorErr.message);
 
       await signOut();
-      navigate('/pending-approval');
+      navigate('/pending-approval', { 
+        state: { message: '📧 Registration submitted! Please check your email and click the confirmation link. Your account will be reviewed by admin after email confirmation.' }
+      });
     } catch (err) {
       setError(err.message || 'Registration failed. Please try again.');
     } finally {
@@ -521,8 +530,8 @@ export default function RegisterPage() {
                 <div className="flex justify-between">
                   <button className="btn btn-ghost" disabled={currentQ === 0} onClick={() => setCurrentQ(q => q - 1)}>← Previous</button>
                   {currentQ < questions.length - 1
-                    ? <button className="btn btn-primary" onClick={() => { if (answers[currentQ] === undefined) { alert('Please select an answer before proceeding.'); return; } setCurrentQ(q => q + 1); }}>Next →</button>
-                    : <button className="btn btn-primary" onClick={() => { if (answers[currentQ] === undefined) { alert('Please select an answer before submitting.'); return; } handleExamSubmit(); }}><Icon name="check" size={14} /> Submit Exam</button>
+                    ? <button className="btn btn-primary" onClick={() => { if (answers[currentQ] === undefined) { setNoAnswerModal(true); return; } setCurrentQ(q => q + 1); }}>Next →</button>
+                    : <button className="btn btn-primary" onClick={() => { if (answers[currentQ] === undefined) { setNoAnswerModal(true); return; } handleExamSubmit(); }}><Icon name="check" size={14} /> Submit Exam</button>
                   }
                 </div>
               </div>
@@ -967,6 +976,21 @@ export default function RegisterPage() {
             </button>
           </div>
           <p className="text-sm text-muted mt-20 text-center">Already have an account? <Link to="/login" style={{ color: tokens.primary, fontWeight: 600 }}>Sign In</Link></p>
+        </div>
+      )}
+    {/* No Answer Modal */}
+      {noAnswerModal && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:99999}}>
+          <div style={{background:'#fff',borderRadius:16,padding:32,maxWidth:360,width:'90%',textAlign:'center',boxShadow:'0 20px 60px rgba(0,0,0,0.2)'}}>
+            <div style={{fontSize:52,marginBottom:16}}>⚠️</div>
+            <div className="font-jakarta font-extrabold mb-8" style={{fontSize:20}}>No Answer Selected</div>
+            <p style={{fontSize:14,color:'#6B7280',lineHeight:1.7,marginBottom:24}}>
+              Please select an answer before proceeding to the next question.
+            </p>
+            <button className="btn btn-primary btn-full" onClick={()=>setNoAnswerModal(false)}>
+              OK, Go Back
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -143,10 +143,15 @@ export function useAdminData() {
 
   const deleteUser = async (userId) => {
     setAllUsers(prev => prev.filter(u => u.id !== userId));
-    const { error: rpcErr } = await supabase.rpc('admin_delete_user', { target_user_id: userId });
-    if (rpcErr) {
-      const { error: profileErr } = await supabase.from('profiles').delete().eq('id', userId);
-      if (profileErr) { await fetchAll(); throw profileErr; }
+    try {
+      // Call RPC that deletes from auth.users (cascades to profiles, tutors, etc.)
+      const { error: rpcErr } = await supabase.rpc('delete_user', { user_id: userId });
+      if (rpcErr) throw rpcErr;
+    } catch(e) {
+      // Fallback: delete from profiles only
+      await supabase.from('tutors').delete().eq('id', userId);
+      await supabase.from('profiles').delete().eq('id', userId);
+      console.warn('Auth user may still exist. Run manually: DELETE FROM auth.users WHERE id =', userId);
     }
   };
 

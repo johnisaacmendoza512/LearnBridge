@@ -88,9 +88,11 @@ export default function FindTutorsPage() {
   const { students } = useStudents();
   const { createBooking, bookings } = useBookings();
 
-  const [subject,  setSubject]  = useState('');
-  const [budget,   setBudget]   = useState('');
-  const [gender,   setGender]   = useState('');
+  const [mode,          setMode]          = useState('browse'); // 'browse' | 'smart'
+  const [selectedChild, setSelectedChild] = useState('');       // student id for smart match
+  const [subject,       setSubject]       = useState('');
+  const [budget,        setBudget]        = useState('');
+  const [gender,        setGender]        = useState('');
   const [toast,    setToast]    = useState(null);
   const [viewTutor, setViewTutor] = useState(null); // tutor profile modal
 
@@ -243,13 +245,54 @@ export default function FindTutorsPage() {
     } finally { setSaving(false); }
   };
 
-  const filtered = tutors.filter(t => {
+  // ── Smart Match Score ─────────────────────────────────────────────────
+  const calcMatchScore = (tutor) => {
+    const child = students.find(s => s.id === selectedChild);
+    if (!child || !child.assessment_results) return 0;
+
+    const certScores  = tutor.certification_scores || {};
+    const weakSubject = child.assessment_results?.level === 'primary' ? 'english' : 'mathematics';
+    const childScore  = child.assessment_results?.score || 0;
+
+    // Factor 1: Tutor certification on weak subject (40%)
+    const weakScore   = certScores[weakSubject] || 0;
+    const f1          = (weakScore / 100) * 40;
+
+    // Factor 2: Overall certification score average (20%)
+    const scores      = Object.values(certScores);
+    const avgScore    = scores.length ? scores.reduce((a,b)=>a+b,0)/scores.length : 0;
+    const f2          = (avgScore / 100) * 20;
+
+    // Factor 3: Rate compatibility (20%)
+    const rate        = tutor.approved_rate || tutor.rate_per_session || 0;
+    const budgetNum   = budget ? parseInt(budget) : Infinity;
+    const f3          = rate <= budgetNum ? 20 : Math.max(0, 20 - ((rate - budgetNum) / budgetNum) * 20);
+
+    // Factor 4: Gender preference (10%)
+    const prefGender  = gender;
+    const f4          = !prefGender || tutor.profile?.gender === prefGender ? 10 : 0;
+
+    // Factor 5: Location (10%) — same location = full points
+    const f5          = tutor.profile?.location === child.notes ? 10 : 5; // partial match
+
+    return Math.round(f1 + f2 + f3 + f4 + f5);
+  };
+
+  // Base filter — only approved tutors
+  const baseFiltered = tutors.filter(t => {
     if (subject && !(t.specialization||[]).includes(subject)) return false;
     const rate = t.approved_rate||t.rate_per_session||0;
     if (budget && rate > parseInt(budget)) return false;
     if (gender && t.profile?.gender !== gender) return false;
     return true;
   });
+
+  // Smart match: rank by score; Browse: show as-is
+  const filtered = mode === 'smart' && selectedChild
+    ? [...baseFiltered]
+        .map(t => ({ ...t, matchScore: calcMatchScore(t) }))
+        .sort((a, b) => b.matchScore - a.matchScore)
+    : baseFiltered;
 
   // Build calendar grid
   const daysInMonth   = getDaysInMonth(calYear, calMonth);
@@ -261,6 +304,49 @@ export default function FindTutorsPage() {
   return (
     <div className="fade-in">
       <Toast msg={toast?.msg} type={toast?.type} onClose={()=>setToast(null)}/>
+
+      {/* Mode Toggle */}
+      <div style={{display:'flex',gap:0,marginBottom:20,borderRadius:12,overflow:'hidden',border:`2px solid ${tokens.border}`,width:'fit-content'}}>
+        {[
+          {key:'browse', label:'📋 Browse All',   desc:'See all tutors'},
+          {key:'smart',  label:'🤖 Smart Match',  desc:'Ranked by child\'s assessment'},
+        ].map(m=>(
+          <button key={m.key} type="button" onClick={()=>setMode(m.key)}
+            style={{padding:'12px 24px',border:'none',background:mode===m.key?tokens.primary:'#fff',color:mode===m.key?'#fff':tokens.mid,fontWeight:700,fontSize:13,cursor:'pointer',transition:'all 0.15s'}}>
+            {m.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Smart Match — child selector */}
+      {mode==='smart' && (
+        <div className="card p-20 mb-20" style={{background:'#F5F3FF',border:'1px solid #DDD6FE'}}>
+          <div className="font-jakarta font-bold mb-12" style={{fontSize:15,color:'#7C3AED'}}>🤖 Smart Match</div>
+          <p style={{fontSize:13,color:'#6D28D9',marginBottom:16,lineHeight:1.6}}>
+            Select a child to rank tutors based on their pre-assessment results, certification scores, your budget, and gender preference.
+          </p>
+          <FormGroup label="Select Child">
+            <select className="select" value={selectedChild} onChange={e=>setSelectedChild(e.target.value)}>
+              <option value="">-- Select a child --</option>
+              {students.map(s=>(
+                <option key={s.id} value={s.id}>
+                  {s.name} (Grade {s.grade_level}){s.assessment_results ? ' ✓ Assessed' : ' — No assessment yet'}
+                </option>
+              ))}
+            </select>
+          </FormGroup>
+          {selectedChild && !students.find(s=>s.id===selectedChild)?.assessment_results && (
+            <div style={{background:'#FEF9C3',border:'1px solid #FDE68A',borderRadius:8,padding:'10px 14px',fontSize:12,color:'#92400E',marginTop:8}}>
+              ⚠️ This child hasn't taken the pre-assessment yet. Go to <strong>My Children</strong> to complete it first.
+            </div>
+          )}
+          {selectedChild && students.find(s=>s.id===selectedChild)?.assessment_results && (
+            <div style={{background:'#EDE9FE',border:'1px solid #C4B5FD',borderRadius:8,padding:'10px 14px',fontSize:12,color:'#5B21B6',marginTop:8}}>
+              ✅ Tutors are ranked by how well they match <strong>{students.find(s=>s.id===selectedChild)?.name}</strong>'s learning needs.
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="card p-20 mb-20">
@@ -290,7 +376,12 @@ export default function FindTutorsPage() {
       </div>
 
       <div className="flex items-center justify-between mb-16">
-        <h3 className="font-jakarta font-bold">{filtered.length} Tutor{filtered.length!==1?'s':''} Found</h3>
+        <h3 className="font-jakarta font-bold">
+          {filtered.length} Tutor{filtered.length!==1?'s':''} Found
+          {mode==='smart' && selectedChild && students.find(s=>s.id===selectedChild)?.assessment_results && (
+            <span style={{fontSize:12,color:'#7C3AED',fontWeight:400,marginLeft:8}}>— ranked by match score</span>
+          )}
+        </h3>
         {filtered.length>0&&<Badge variant="success"><Icon name="check" size={10} color="#065F46"/> Verified & approved tutors only</Badge>}
       </div>
 
@@ -307,7 +398,16 @@ export default function FindTutorsPage() {
                     : <span style={{color:'#fff',fontWeight:800,fontSize:20}}>{(t.profile?.full_name||'T').charAt(0)}</span>}
                 </div>
                 <div style={{flex:1}}>
-                  <div className="font-jakarta font-bold" style={{fontSize:16}}>{t.profile?.full_name||'Tutor'}</div>
+                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:2}}>
+                    <div className="font-jakarta font-bold" style={{fontSize:16}}>{t.profile?.full_name||'Tutor'}</div>
+                    {mode==='smart' && t.matchScore !== undefined && (
+                      <span style={{fontSize:11,fontWeight:800,padding:'2px 8px',borderRadius:20,flexShrink:0,
+                        background:t.matchScore>=80?'#D1FAE5':t.matchScore>=60?'#EFF6FF':'#FEF9C3',
+                        color:t.matchScore>=80?'#065F46':t.matchScore>=60?'#1D4ED8':'#92400E'}}>
+                        {t.matchScore}% Match
+                      </span>
+                    )}
+                  </div>
                   <div className="text-sm text-muted mb-8">{(t.specialization||[]).join(' · ')||'General'}</div>
                   <div className="flex gap-8 mb-12" style={{flexWrap:'wrap'}}>
                     <Badge variant="success">✓ Verified</Badge>

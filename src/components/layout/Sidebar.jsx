@@ -8,12 +8,12 @@ import tokens from '../../lib/tokens';
 const navItems = {
   parent: [
     { to: '/dashboard',     label: 'Dashboard',    icon: 'home'      },
+    { to: '/my-profile',    label: 'My Profile',   icon: 'user'      },
     { to: '/my-children',   label: 'My Children',  icon: 'users'     },
     { to: '/find-tutors',   label: 'Find Tutors',  icon: 'search'    },
+    { to: '/sessions',      label: 'Sessions',     icon: 'book'      },
     { to: '/bookings',      label: 'Bookings',     icon: 'calendar'  },
     { to: '/wallet',        label: 'Wallet',       icon: 'wallet'    },
-    { to: '/sessions',      label: 'Sessions',     icon: 'book'      },
-    { to: '/my-profile',    label: 'My Profile',   icon: 'user'      },
     { to: '/messages',      label: 'Messages',     icon: 'message',  badge: true },
   ],
   tutor: [

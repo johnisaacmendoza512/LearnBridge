@@ -20,8 +20,9 @@ const navItems = {
     { to: '/dashboard',     label: 'Dashboard',    icon: 'home'      },
     { to: '/my-profile',    label: 'My Profile',   icon: 'user'      },
     { to: '/certification', label: 'Certification',icon: 'award'     },
-    { to: '/bookings',      label: 'Bookings',     icon: 'calendar'  },
-    { to: '/sessions',      label: 'Sessions',     icon: 'book'      },
+    { to: '/calendar',      label: 'Calendar',     icon: 'calendar'  },
+    { to: '/bookings',      label: 'Bookings',     icon: 'book'      },
+    { to: '/sessions',      label: 'Sessions',     icon: 'clipboard' },
     { to: '/question-bank', label: 'Question Bank',icon: 'clipboard' },
     { to: '/wallet',        label: 'Wallet',       icon: 'wallet'    },
     { to: '/messages',      label: 'Messages',     icon: 'message',  badge: true },
@@ -87,7 +88,6 @@ export default function Sidebar() {
           >
             <Icon name={item.icon} size={16} color="currentColor" />
             <span style={{ flex: 1 }}>{item.label}</span>
-            {/* Unread announcement badge — only for parent/tutor Messages link */}
             {item.badge && unreadCount > 0 && (
               <div style={{
                 minWidth: 18, height: 18, borderRadius: 9,

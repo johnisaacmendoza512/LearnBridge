@@ -129,10 +129,6 @@ export default function WalletPage() {
         ))}
       </div>
 
-      {/* Commission info */}
-      <div style={{background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:12,padding:'14px 20px',marginBottom:24,fontSize:13,color:'#1D4ED8',lineHeight:1.7}}>
-        💡 <strong>How it works:</strong> When a parent pays for confirmed sessions, LearnBridge keeps <strong>10%</strong> as a platform fee and deposits <strong>90%</strong> directly to your earnings wallet.
-      </div>
 
       {/* Transaction history */}
       <div className="card" style={{overflow:'hidden'}}>

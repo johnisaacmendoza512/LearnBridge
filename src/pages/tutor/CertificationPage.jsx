@@ -104,11 +104,6 @@ export default function CertificationPage() {
               })}
             </div>
           </div>
-
-          {/* Note */}
-          <div style={{ background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:12, padding:'14px 20px', fontSize:13, color:'#1D4ED8', lineHeight:1.7 }}>
-            ℹ️ <strong>Note:</strong> These results are final and based on the AI certification exam taken during registration. Contact admin at <strong>packageonthemove@gmail.com</strong> for any concerns.
-          </div>
         </div>
       )}
     </div>

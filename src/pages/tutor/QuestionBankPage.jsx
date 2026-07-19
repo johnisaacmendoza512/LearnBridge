@@ -303,10 +303,6 @@ export default function QuestionBankPage() {
             </div>
           </FormGroup>
         ))}
-
-        <div style={{ background:'#FEF9C3', border:'1px solid #FDE68A', borderRadius:10, padding:'10px 14px', fontSize:12, color:'#92400E' }}>
-          ⏳ Questions are reviewed by the admin team before becoming active in pre-assessments.
-        </div>
       </Modal>
     </div>
   );

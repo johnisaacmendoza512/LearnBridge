@@ -110,12 +110,6 @@ export default function ParentProfilePage() {
           </div>
         </div>
       )}
-      {accountStatus === 'approved' && (
-        <div style={{ background: '#D1FAE5', border: '1px solid #6EE7B7', borderRadius: 12, padding: '12px 18px', marginBottom: 20, fontSize: 13, color: '#065F46', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 18 }}>✅</span>
-          <div><strong>Account Verified</strong> — Your identity has been verified by the admin team.</div>
-        </div>
-      )}
       {accountStatus === 'rejected' && (
         <div style={{ background: '#FEE2E2', border: '1px solid #FCA5A5', borderRadius: 12, padding: '14px 18px', marginBottom: 20, fontSize: 13, color: '#DC2626', display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: 20 }}>❌</span>
@@ -257,9 +251,6 @@ export default function ParentProfilePage() {
               </div>
             )}
 
-            <div style={{ marginTop: 16, padding: '10px 14px', background: '#F9FAFB', borderRadius: 10, fontSize: 12, color: tokens.muted }}>
-              🔒 Your documents are securely stored and only accessible by you and authorized admin staff.
-            </div>
           </div>
         </div>
       </div>

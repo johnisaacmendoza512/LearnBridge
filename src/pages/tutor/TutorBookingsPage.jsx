@@ -355,15 +355,7 @@ export default function TutorBookingsPage() {
                         </div>
                       </div>
                     )}
-                    <div style={{background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:12,padding:14,fontSize:13,color:'#1D4ED8'}}>
-                      💡 <strong>Teaching tip:</strong> {
-                        studentProfile.assessment_level==='intermediate'
-                          ? 'Focus on critical thinking, problem-solving and junior high school prep.'
-                          : studentProfile.assessment_level==='primary'
-                            ? 'Focus on building strong foundations in reading, writing and basic mathematics.'
-                            : 'Ask the parent to complete the pre-assessment to better tailor your sessions.'
-                      }
-                    </div>
+
                   </div>
                 )}
               </div>
@@ -389,14 +381,7 @@ export default function TutorBookingsPage() {
                 </div>
                 {/* Schedule summary — view only, managed via Calendar */}
                 {selected.scheduled_date ? (
-                  <div style={{background:'#D1FAE5',border:'1px solid #6EE7B7',borderRadius:12,padding:16}}>
-                    <div className="font-jakarta font-bold mb-8" style={{fontSize:14,color:'#065F46'}}>✅ Session Schedule</div>
-                    <div style={{fontSize:13,fontWeight:600,color:'#065F46'}}>
-                      📅 {new Date(selected.scheduled_date+'T00:00:00').toLocaleDateString('en-PH',{weekday:'long',month:'long',day:'numeric',year:'numeric'})}
-                    </div>
-                    <div style={{fontSize:13,fontWeight:600,color:'#065F46',marginTop:4}}>
-                      🕐 {(() => { const [h] = (selected.scheduled_time||'00:00').split(':'); const hr=parseInt(h); return `${hr>12?hr-12:hr||12}:00 ${hr>=12?'PM':'AM'}`; })()}
-                    </div>
+                  <div style={{background:'#ffffff',border:'1px solid #ffffff',borderRadius:12,padding:16}}>
                   </div>
                 ) : (
                   <div style={{background:'#F9FAFB',border:`1px dashed ${tokens.border}`,borderRadius:12,padding:20,textAlign:'center'}}>
@@ -441,10 +426,6 @@ export default function TutorBookingsPage() {
                   <span style={{fontSize:11,color:tokens.muted}}>{l}</span>
                 </div>
               ))}
-            </div>
-
-            <div style={{background:'#FEF9C3',border:'1px solid #FDE68A',borderRadius:8,padding:'10px 14px',marginBottom:14,fontSize:12,color:'#92400E'}}>
-              ℹ️ This is a read-only view. Only the parent can reschedule rejected sessions.
             </div>
 
             {loadingSlots ? (

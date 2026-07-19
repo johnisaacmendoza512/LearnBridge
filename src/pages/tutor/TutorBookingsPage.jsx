@@ -5,6 +5,7 @@ import EmptyState from '../../components/ui/EmptyState';
 import Spinner from '../../components/ui/Spinner';
 import Modal from '../../components/ui/Modal';
 import FormGroup from '../../components/ui/FormGroup';
+import { supabase } from '../../lib/supabase';
 import { useBookings } from '../../hooks/useBookings';
 import tokens from '../../lib/tokens';
 
@@ -48,12 +49,27 @@ export default function TutorBookingsPage() {
   const [studentProfile, setStudentProfile] = useState(null);
   const [schedForm,   setSchedForm]   = useState({ day1:'', time1:'', day2:'', time2:'' });
   const [showSched,   setShowSched]   = useState(false);
+  const [viewSlotsModal, setViewSlotsModal] = useState(null);
+  const [bookingSlots,   setBookingSlots]   = useState([]);
+  const [loadingSlots,   setLoadingSlots]   = useState(false);
   const [savingSched, setSavingSched] = useState(false);
   const [saving,      setSaving]      = useState(false);
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
+  };
+
+  const fetchBookingSlots = async (bookingId) => {
+    setLoadingSlots(true);
+    const { data } = await supabase
+      .from('booking_slots')
+      .select('*')
+      .eq('booking_id', bookingId)
+      .order('slot_date')
+      .order('slot_time');
+    setBookingSlots(data || []);
+    setLoadingSlots(false);
   };
 
   const openBooking = async (b) => {
@@ -171,18 +187,16 @@ export default function TutorBookingsPage() {
                     <td className="font-semibold" style={{ fontSize:13 }}>{b.student?.name || '—'}</td>
                     <td style={{ fontSize:13 }}>{b.parent?.full_name || '—'}</td>
                     <td style={{ fontSize:13, textTransform:'capitalize' }}>{b.subject || '—'}</td>
-                    <td style={{ fontSize:12 }}>
-                      {hasSched ? (
-                        <div>
-                          <div style={{ color:'#065F46', fontWeight:600 }}>✓ {b.confirmed_day_1} {fmtTime(b.confirmed_time_1)}</div>
-                          {b.confirmed_day_2 && <div style={{ color:'#065F46', fontWeight:600 }}>✓ {b.confirmed_day_2} {fmtTime(b.confirmed_time_2)}</div>}
-                        </div>
-                      ) : hasProposed ? (
-                        <div>
-                          <div style={{ color:'#1D4ED8' }}>📋 {b.proposed_day_1} {fmtTime(b.proposed_time_1)}</div>
-                          {b.proposed_day_2 && <div style={{ color:'#1D4ED8' }}>📋 {b.proposed_day_2} {fmtTime(b.proposed_time_2)}</div>}
-                        </div>
-                      ) : <span style={{ color:tokens.muted }}>Not set</span>}
+                    <td>
+                      {b.scheduled_date ? (
+                        <button className="btn btn-sm"
+                          style={{background:'#EFF6FF',color:tokens.primary,border:`1px solid ${tokens.primary}30`}}
+                          onClick={async()=>{setViewSlotsModal(b);await fetchBookingSlots(b.id);}}>
+                          📅 View Schedule
+                        </button>
+                      ) : (
+                        <span style={{fontSize:11,color:'#F59E0B',fontWeight:700}}>⏳ Pending</span>
+                      )}
                     </td>
                     <td style={{ fontSize:12, textTransform:'capitalize' }}>{b.session_mode || '—'}</td>
                     <td className="font-semibold" style={{ fontSize:13 }}>₱{Number(b.total_amount||0).toLocaleString()}</td>
@@ -390,6 +404,92 @@ export default function TutorBookingsPage() {
                     <div className="text-sm text-muted">Schedule will appear here once the parent selects dates from the calendar.</div>
                   </div>
                 )}
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* ── View Schedule Modal (read-only) ── */}
+      <Modal
+        open={!!viewSlotsModal}
+        onClose={()=>{setViewSlotsModal(null);setBookingSlots([]);}}
+        title="📅 Session Schedule"
+        footer={<button className="btn btn-ghost" onClick={()=>{setViewSlotsModal(null);setBookingSlots([]);}}>Close</button>}
+      >
+        {viewSlotsModal && (
+          <div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:16}}>
+              {[
+                ['Parent',  viewSlotsModal.parent?.full_name || '—'],
+                ['Student', viewSlotsModal.student?.name    || '—'],
+                ['Subject', viewSlotsModal.subject          || '—'],
+                ['Mode',    viewSlotsModal.session_mode     || '—'],
+              ].map(([k,v])=>(
+                <div key={k} style={{background:'#F9FAFB',borderRadius:8,padding:12}}>
+                  <div className="text-xs text-muted uppercase font-bold mb-4" style={{letterSpacing:'0.5px'}}>{k}</div>
+                  <div className="font-semibold" style={{fontSize:13,textTransform:'capitalize'}}>{v}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Legend */}
+            <div className="flex gap-12 mb-14" style={{flexWrap:'wrap'}}>
+              {[['#F97316','Pending'],['#22C55E','Confirmed'],['#EF4444','Rejected'],['#6B7280','Completed']].map(([c,l])=>(
+                <div key={l} className="flex items-center gap-6">
+                  <div style={{width:12,height:12,borderRadius:3,background:c,flexShrink:0}}/>
+                  <span style={{fontSize:11,color:tokens.muted}}>{l}</span>
+                </div>
+              ))}
+            </div>
+
+            <div style={{background:'#FEF9C3',border:'1px solid #FDE68A',borderRadius:8,padding:'10px 14px',marginBottom:14,fontSize:12,color:'#92400E'}}>
+              ℹ️ This is a read-only view. Only the parent can reschedule rejected sessions.
+            </div>
+
+            {loadingSlots ? (
+              <div style={{textAlign:'center',padding:'20px 0',color:tokens.muted}}>Loading...</div>
+            ) : bookingSlots.length===0 ? (
+              <div style={{textAlign:'center',padding:'24px 0',color:tokens.muted}}>
+                <div style={{fontSize:32,marginBottom:8}}>📅</div>
+                <div>No session slots found.</div>
+              </div>
+            ) : (
+              <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                <div className="font-jakarta font-bold mb-4" style={{fontSize:14}}>
+                  {bookingSlots.length} Session{bookingSlots.length!==1?'s':''}
+                </div>
+                {bookingSlots.map((slot,i)=>{
+                  const [h]    = (slot.slot_time||'00:00').split(':');
+                  const hr     = parseInt(h);
+                  const timeLabel = `${hr>12?hr-12:hr||12}:00 ${hr>=12?'PM':'AM'}`;
+                  const dateLabel = slot.slot_date
+                    ? new Date(slot.slot_date+'T00:00:00').toLocaleDateString('en-PH',{weekday:'short',month:'short',day:'numeric',year:'numeric'})
+                    : '—';
+
+                  const isConfirmed = slot.status==='confirmed';
+                  const isRejected  = slot.status==='rejected';
+                  const isCompleted = slot.status==='completed';
+                  const dotBg = isConfirmed?'#22C55E':isRejected?'#EF4444':isCompleted?'#6B7280':'#F97316';
+
+                  return (
+                    <div key={slot.id} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',borderRadius:10,
+                      background:isConfirmed?'#F0FDF4':isRejected?'#FEF2F2':isCompleted?'#F3F4F6':'#FFFBEB',
+                      border:`1.5px solid ${isConfirmed?'#6EE7B7':isRejected?'#FECACA':isCompleted?'#E5E7EB':'#FDE68A'}`}}>
+                      <div style={{width:12,height:12,borderRadius:'50%',background:dotBg,flexShrink:0}}/>
+                      <span style={{fontSize:11,fontWeight:800,background:dotBg,color:'#fff',borderRadius:6,padding:'2px 8px',flexShrink:0}}>
+                        S{i+1}
+                      </span>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:13,fontWeight:600}}>{dateLabel}</div>
+                        <div style={{fontSize:12,color:tokens.muted}}>{timeLabel}</div>
+                      </div>
+                      <span style={{fontSize:11,fontWeight:700,color:dotBg}}>
+                        {isConfirmed?'✅ Confirmed':isRejected?'❌ Rejected':isCompleted?'✓ Done':'⏳ Pending'}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

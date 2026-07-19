@@ -166,10 +166,7 @@ export default function ParentWalletPage() {
         )}
       </div>
 
-      {/* Info box */}
-      <div style={{background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:12,padding:'14px 20px',marginBottom:24,fontSize:13,color:'#1D4ED8',lineHeight:1.7}}>
-        💡 Each session costs <strong>₱1 × 8 sessions = ₱8 per booking</strong>. Payment is deducted automatically after both you and the tutor confirm the sessions.
-      </div>
+
 
       {/* Transactions */}
       <div className="card" style={{overflow:'hidden'}}>

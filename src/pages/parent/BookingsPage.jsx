@@ -198,9 +198,9 @@ export default function BookingsPage() {
 
     setPayingId(b.id);
     try {
-      const RATE_PER_SESSION = 1;
-      const SESSIONS         = 8;
-      const totalAmount      = RATE_PER_SESSION * SESSIONS;
+      const SESSIONS    = 8;
+      const ratePerSession = Number(b.tutor?.approved_rate || b.tutor?.rate_per_session || b.total_amount / 8 || 1);
+      const totalAmount = ratePerSession * SESSIONS;
 
       // Check parent wallet balance
       const { data: profile } = await supabase
@@ -624,7 +624,7 @@ export default function BookingsPage() {
         )}
       </Modal>
 
-      {/* ── Confirm & Rate Modal ── */}}
+      {/* ── Confirm & Rate Modal ── */}
       <Modal
         open={!!confirmModal}
         onClose={() => setConfirmModal(null)}

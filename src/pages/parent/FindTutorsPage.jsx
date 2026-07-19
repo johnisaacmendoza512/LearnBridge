@@ -106,7 +106,7 @@ export default function FindTutorsPage() {
   // Booking modal steps: 'details' | 'calendar' | 'confirm'
   const [booking,  setBooking]  = useState(null); // tutor object
   const [step,     setStep]     = useState('details');
-  const [form,     setForm]     = useState({student_id:'',session_mode:'face-to-face'});
+  const [form,     setForm]     = useState({student_id:'',session_mode:'face-to-face',subject:''});
   const [saving,   setSaving]   = useState(false);
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
 
@@ -148,6 +148,7 @@ export default function FindTutorsPage() {
 
   const handleOpenCalendar = () => {
     if (!form.student_id) { showToast('Please select a child first.','error'); return; }
+    if (!form.subject)    { showToast('Please select a subject first.','error'); return; }
     setStep('calendar');
     setSelectedSlots([]);
     setPickingDate(null);
@@ -201,7 +202,7 @@ export default function FindTutorsPage() {
       const data = await createBooking({
         tutor_id:       booking.id,
         student_id:     form.student_id,
-        subject:        subject||(booking.specialization||[])[0]||'',
+        subject:        form.subject === 'both' ? 'english & mathematics' : form.subject || (booking.specialization||[])[0] || '',
         session_mode:   form.session_mode,
         total_amount:   (booking.approved_rate||booking.rate_per_session||0)*8,
         scheduled_date: firstSlot.date,
@@ -235,7 +236,7 @@ export default function FindTutorsPage() {
 
       setBooking(null);
       setStep('details');
-      setForm({student_id:'',session_mode:'face-to-face'});
+      setForm({student_id:'',session_mode:'face-to-face',subject:''});
       setSelectedSlots([]);
       setPickingDate(null);
       showToast('Booking submitted with 8 sessions! Waiting for tutor confirmation.');
@@ -480,13 +481,24 @@ export default function FindTutorsPage() {
             {step==='details' && (
               <div>
                 <div style={{background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:10,padding:'12px 16px',marginBottom:20,fontSize:13,color:'#1D4ED8'}}>
-                  ℹ️ Select your child and session mode. Then choose your preferred schedule.
+                  ℹ️ Select your child, subject, and session mode. Then choose your preferred schedule.
                 </div>
                 <FormGroup label="Which child is this for?">
                   <select className="select" value={form.student_id} onChange={e=>set('student_id',e.target.value)}>
                     <option value="">Select a child</option>
                     {students.map(s=><option key={s.id} value={s.id}>{s.name} (Grade {s.grade_level})</option>)}
                   </select>
+                </FormGroup>
+                <FormGroup label="Subject">
+                  <div className="flex gap-10">
+                    {['english','mathematics','both'].map(s=>(
+                      <button key={s} type="button"
+                        onClick={()=>set('subject',s)}
+                        style={{flex:1,padding:'10px 8px',borderRadius:10,border:`2px solid ${form.subject===s?tokens.primary:tokens.border}`,background:form.subject===s?tokens.primaryLight:'#FAFAFA',color:form.subject===s?tokens.primary:tokens.mid,fontWeight:700,fontSize:13,cursor:'pointer',textTransform:'capitalize',transition:'all 0.15s'}}>
+                        {s==='both'?'Both (English & Math)':s.charAt(0).toUpperCase()+s.slice(1)}
+                      </button>
+                    ))}
+                  </div>
                 </FormGroup>
                 <FormGroup label="Session Mode">
                   <select className="select" value={form.session_mode} onChange={e=>set('session_mode',e.target.value)}>
@@ -640,6 +652,7 @@ export default function FindTutorsPage() {
                     ['Tutor',    booking?.profile?.full_name||'—'],
                     ['Child',    students.find(s=>s.id===form.student_id)?.name||'—'],
                     ['Subject',  subject||(booking?.specialization||[])[0]||'—'],
+                    ['Subject',  form.subject==='both'?'English & Mathematics':form.subject||'—'],
                     ['Mode',     form.session_mode],
                     ['Total',    `₱${((booking?.approved_rate||booking?.rate_per_session||0)*8).toLocaleString()}`],
                   ].map(([k,v])=>(

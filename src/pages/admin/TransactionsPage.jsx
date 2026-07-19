@@ -233,12 +233,12 @@ export default function TransactionsPage() {
             ) : (
               <div style={{display:'flex',flexDirection:'column',gap:16,padding:20}}>
                 <div style={{background:'#FEF9C3',border:'1px solid #FDE68A',borderRadius:10,padding:'12px 16px',fontSize:13,color:'#92400E',lineHeight:1.6}}>
-                  ⚠️ <strong>Admin action required:</strong> For each approved withdrawal, manually send the amount to the tutor's GCash number shown below, then click Approve to confirm.
+                  ⚠️ <strong>Admin action required:</strong> For each approved withdrawal, manually send the amount to the tutor's PayMongo account number shown below, then click Approve to confirm.
                 </div>
                 {withdrawals.map(t=>{
-                  // Extract GCash number from description e.g. "Withdrawal to GCash 09171234567"
-                  const gcashMatch = (t.description||'').match(/GCash\s+(09\d{9})/);
-                  const gcashNum   = gcashMatch ? gcashMatch[1] : null;
+                  // Extract PayMongo account number from description e.g. "Withdrawal to GCash 09171234567"
+                  const gcashMatch = (t.description||'').match(/PayMongo — (.+?) \((.+?)\)/);
+                  const gcashNum   = gcashMatch ? `${gcashMatch[1]} — ${gcashMatch[2]}` : null;
                   return (
                     <div key={t.id} style={{border:`2px solid #FDE68A`,borderRadius:14,overflow:'hidden'}}>
                       {/* Header */}
@@ -258,20 +258,20 @@ export default function TransactionsPage() {
                         </div>
                       </div>
 
-                      {/* GCash number — prominent */}
+                      {/* PayMongo account number — prominent */}
                       <div style={{padding:'16px 20px',background:'#fff'}}>
-                        <div style={{fontSize:12,color:tokens.muted,fontWeight:600,marginBottom:8,textTransform:'uppercase',letterSpacing:'0.5px'}}>Send to GCash:</div>
+                        <div style={{fontSize:12,color:tokens.muted,fontWeight:600,marginBottom:8,textTransform:'uppercase',letterSpacing:'0.5px'}}>Send to PayMongo Account:</div>
                         {gcashNum ? (
                           <div style={{display:'flex',alignItems:'center',gap:12}}>
                             <div style={{background:'#007AFF',borderRadius:10,padding:'12px 20px',display:'inline-flex',alignItems:'center',gap:10}}>
                               <span style={{fontSize:24}}>📱</span>
                               <div>
                                 <div style={{color:'#fff',fontWeight:900,fontSize:22,letterSpacing:2}}>{gcashNum}</div>
-                                <div style={{color:'rgba(255,255,255,0.8)',fontSize:11}}>GCash Number</div>
+                                <div style={{color:'rgba(255,255,255,0.8)',fontSize:11}}>PayMongo Account</div>
                               </div>
                             </div>
                             <button
-                              onClick={()=>{navigator.clipboard.writeText(gcashNum); showToast('GCash number copied!');}}
+                              onClick={()=>{navigator.clipboard.writeText(gcashNum); showToast('PayMongo account number copied!');}}
                               style={{padding:'8px 16px',borderRadius:8,background:'#EFF6FF',border:'1px solid #BFDBFE',color:'#1D4ED8',fontWeight:600,fontSize:13,cursor:'pointer'}}>
                               📋 Copy
                             </button>
@@ -284,7 +284,7 @@ export default function TransactionsPage() {
                       {/* Actions */}
                       <div style={{padding:'12px 20px',background:'#F9FAFB',borderTop:'1px solid #FDE68A',display:'flex',gap:10,alignItems:'center'}}>
                         <span style={{fontSize:12,color:tokens.muted,flex:1}}>
-                          Once you've sent ₱{Number(t.amount).toFixed(2)} to GCash {gcashNum||''}, click Approve to confirm.
+                          Once you've sent ₱{Number(t.amount).toFixed(2)} to PayMongo account {gcashNum||''}, click Approve to confirm.
                         </span>
                         <button className="btn btn-sm"
                           style={{background:'#D1FAE5',color:'#065F46',border:'1px solid #6EE7B7',fontWeight:700,padding:'10px 20px'}}

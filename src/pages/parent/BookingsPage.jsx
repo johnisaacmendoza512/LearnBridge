@@ -44,7 +44,7 @@ function Toast({ msg, type, onClose }) {
 
 export default function BookingsPage() {
   const { user } = useAuth();
-  const { bookings, loading, updateBookingStatus, confirmComplete, saveSchedule } = useBookings();
+  const { bookings, loading, updateBookingStatus, confirmComplete, saveSchedule, refresh } = useBookings();
 
   const [toast,        setToast]        = useState(null);   // {msg, type}
   const [schedModal,   setSchedModal]   = useState(null);   // booking object
@@ -183,11 +183,24 @@ export default function BookingsPage() {
   };
 
   const handleConfirmAndPay = async (b) => {
+    // Prevent double payment — check current payment status first
+    const { data: freshBooking } = await supabase
+      .from('bookings')
+      .select('payment_status, status')
+      .eq('id', b.id)
+      .single();
+
+    if (freshBooking?.payment_status === 'paid') {
+      showToast('This booking has already been paid.', 'error');
+      refresh();
+      return;
+    }
+
     setPayingId(b.id);
     try {
-      const RATE_PER_SESSION = 1; // ₱1 per session for demo
+      const RATE_PER_SESSION = 1;
       const SESSIONS         = 8;
-      const totalAmount      = RATE_PER_SESSION * SESSIONS; // ₱8
+      const totalAmount      = RATE_PER_SESSION * SESSIONS;
 
       // Check parent wallet balance
       const { data: profile } = await supabase
@@ -204,17 +217,17 @@ export default function BookingsPage() {
       }
 
       const gross    = totalAmount;
-      const fee      = Math.round(gross * 0.10 * 100) / 100;  // 10% platform
-      const earnings = Math.round(gross * 0.90 * 100) / 100;  // 90% tutor
+      const fee      = Math.round(gross * 0.10 * 100) / 100;
+      const earnings = Math.round(gross * 0.90 * 100) / 100;
 
-      // ── Step 1: Deduct full amount from parent wallet ──
+      // Deduct from parent wallet
       const { error: deductErr } = await supabase.rpc('decrement_wallet', {
         user_id: user.id,
         amount:  totalAmount,
       });
       if (deductErr) throw new Error('Failed to deduct from wallet: ' + deductErr.message);
 
-      // Record parent deduction transaction
+      // Record parent deduction
       await supabase.from('wallet_transactions').insert({
         user_id:     user.id,
         type:        'deduction',
@@ -224,14 +237,13 @@ export default function BookingsPage() {
         status:      'completed',
       });
 
-      // ── Step 2: Add 90% to tutor wallet ──
-      const { error: tutorErr } = await supabase.rpc('increment_tutor_wallet', {
+      // Add 90% to tutor wallet
+      await supabase.rpc('increment_tutor_wallet', {
         tutor_id: b.tutor_id,
         amount:   earnings,
       });
-      if (tutorErr) throw new Error('Failed to credit tutor wallet: ' + tutorErr.message);
 
-      // Record tutor earning transaction
+      // Record tutor earning
       await supabase.from('wallet_transactions').insert({
         user_id:     b.tutor_id,
         type:        'earning',
@@ -241,23 +253,25 @@ export default function BookingsPage() {
         status:      'completed',
       });
 
-      // ── Step 3: Record 10% platform commission ──
-      await supabase.from('platform_earnings').insert({
+      // Record platform commission
+      const { error: commErr } = await supabase.from('platform_earnings').insert({
         booking_id:   b.id,
         gross_amount: gross,
         commission:   fee,
       });
+      if (commErr) console.error('Platform earnings insert error:', commErr.message);
 
-      // ── Step 4: Mark booking as paid ──
+      // Mark booking as paid AND completed
       await supabase.from('bookings').update({
         payment_status: 'paid',
         paid_at:        new Date().toISOString(),
         platform_fee:   fee,
         tutor_earnings: earnings,
-        status:         'confirmed',
+        status:         'completed',
       }).eq('id', b.id);
 
-      showToast(`✅ Payment confirmed! ₱${earnings.toFixed(2)} sent to tutor. ₱${fee.toFixed(2)} platform fee collected.`);
+      showToast(`✅ Payment confirmed! ₱${earnings.toFixed(2)} sent to tutor.`);
+      refresh(); // Refresh bookings so button disappears immediately
     } catch(e) {
       showToast(e.message, 'error');
     } finally {
@@ -346,8 +360,8 @@ export default function BookingsPage() {
                           onClick={()=>setDetailModal(b)}>
                           👁 View
                         </button>
-                        {/* Confirm & Pay — show when confirmed by tutor, both need to confirm, and unpaid */}
-                        {b.status === 'confirmed' && (b.payment_status === 'unpaid' || !b.payment_status) && (
+                        {/* Confirm & Pay — only after tutor marks complete (pending_parent_confirm) */}
+                        {b.status === 'pending_parent_confirm' && (b.payment_status === 'unpaid' || !b.payment_status) && (
                           <button className="btn btn-sm"
                             style={{background:'#22C55E',color:'#fff',border:'none',fontWeight:700}}
                             onClick={()=>handleConfirmAndPay(b)}
@@ -360,12 +374,6 @@ export default function BookingsPage() {
                           <span style={{fontSize:11,fontWeight:700,padding:'3px 10px',borderRadius:20,background:'#D1FAE5',color:'#065F46'}}>
                             ✅ Paid
                           </span>
-                        )}
-                        {/* Confirm+Rate button */}
-                        {b.status === 'pending_parent_confirm' && (
-                          <button className="btn btn-primary btn-sm" onClick={() => setConfirmModal(b)}>
-                            ✓ Confirm & Rate
-                          </button>
                         )}
                         {/* Cancel — pending only */}
                         {b.status === 'pending' && (

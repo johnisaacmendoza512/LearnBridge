@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 import FormGroup from '../../components/ui/FormGroup';
@@ -16,8 +16,14 @@ export default function ParentProfilePage() {
   const [savedPhone,    setSavedPhone]    = useState(profile?.phone    || '');
   const [savedLocation, setSavedLocation] = useState(profile?.location || '');
   const [savedGender,   setSavedGender]   = useState(profile?.gender   || '');
-  const [savedId1Url,   setSavedId1Url]   = useState(profile?.valid_id1_url || null);
-  const [savedId2Url,   setSavedId2Url]   = useState(profile?.valid_id2_url || null);
+  const [savedId1, setSavedId1] = useState(profile?.valid_id_1 || null);
+  const [savedId2, setSavedId2] = useState(profile?.valid_id_2 || null);
+
+  // Update when profile loads from AuthContext
+  useEffect(() => {
+    if (profile?.valid_id_1) setSavedId1(profile.valid_id_1);
+    if (profile?.valid_id_2) setSavedId2(profile.valid_id_2);
+  }, [profile?.valid_id_1, profile?.valid_id_2]);
 
   const [editing,      setEditing]      = useState(false);
   const [saving,       setSaving]       = useState(false);
@@ -222,11 +228,11 @@ export default function ParentProfilePage() {
             <h3 className="font-jakarta font-bold mb-4" style={{ fontSize: 16 }}>🪪 Submitted Valid IDs</h3>
             <p className="text-sm text-muted mb-20">These are the identification documents you submitted during registration.</p>
 
-            {savedId1Url || savedId2Url ? (
+            {savedId1 || savedId2 ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {[
-                  { label: '1st Valid ID', url: savedId1Url },
-                  { label: '2nd Valid ID', url: savedId2Url },
+                  { label: '1st Valid ID', url: savedId1 },
+                  { label: '2nd Valid ID', url: savedId2 },
                 ].map((doc, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 12, background: doc.url ? '#F0FDF4' : '#FEF2F2', border: `1.5px solid ${doc.url ? '#6EE7B7' : '#FCA5A5'}` }}>
                     <span style={{ fontSize: 24 }}>🪪</span>

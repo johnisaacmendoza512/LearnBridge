@@ -106,7 +106,7 @@ export default function FindTutorsPage() {
   // Booking modal steps: 'details' | 'calendar' | 'confirm'
   const [booking,  setBooking]  = useState(null); // tutor object
   const [step,     setStep]     = useState('details');
-  const [form,     setForm]     = useState({student_id:'',payment_method:'cash',session_mode:'face-to-face'});
+  const [form,     setForm]     = useState({student_id:'',session_mode:'face-to-face'});
   const [saving,   setSaving]   = useState(false);
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
 
@@ -203,7 +203,6 @@ export default function FindTutorsPage() {
         student_id:     form.student_id,
         subject:        subject||(booking.specialization||[])[0]||'',
         session_mode:   form.session_mode,
-        payment_method: form.payment_method,
         total_amount:   (booking.approved_rate||booking.rate_per_session||0)*8,
         scheduled_date: firstSlot.date,
         scheduled_time: firstTimeStr,
@@ -236,7 +235,7 @@ export default function FindTutorsPage() {
 
       setBooking(null);
       setStep('details');
-      setForm({student_id:'',payment_method:'cash',session_mode:'face-to-face'});
+      setForm({student_id:'',session_mode:'face-to-face'});
       setSelectedSlots([]);
       setPickingDate(null);
       showToast('Booking submitted with 8 sessions! Waiting for tutor confirmation.');
@@ -481,19 +480,12 @@ export default function FindTutorsPage() {
             {step==='details' && (
               <div>
                 <div style={{background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:10,padding:'12px 16px',marginBottom:20,fontSize:13,color:'#1D4ED8'}}>
-                  ℹ️ Select your child, payment method, and session mode. Then choose your preferred schedule.
+                  ℹ️ Select your child and session mode. Then choose your preferred schedule.
                 </div>
                 <FormGroup label="Which child is this for?">
                   <select className="select" value={form.student_id} onChange={e=>set('student_id',e.target.value)}>
                     <option value="">Select a child</option>
                     {students.map(s=><option key={s.id} value={s.id}>{s.name} (Grade {s.grade_level})</option>)}
-                  </select>
-                </FormGroup>
-                <FormGroup label="Payment Method">
-                  <select className="select" value={form.payment_method} onChange={e=>set('payment_method',e.target.value)}>
-                    <option value="cash">Cash</option>
-                    <option value="gcash">GCash</option>
-                    <option value="bank_transfer">Bank Transfer</option>
                   </select>
                 </FormGroup>
                 <FormGroup label="Session Mode">
@@ -649,7 +641,6 @@ export default function FindTutorsPage() {
                     ['Child',    students.find(s=>s.id===form.student_id)?.name||'—'],
                     ['Subject',  subject||(booking?.specialization||[])[0]||'—'],
                     ['Mode',     form.session_mode],
-                    ['Payment',  form.payment_method.replace('_',' ')],
                     ['Total',    `₱${((booking?.approved_rate||booking?.rate_per_session||0)*8).toLocaleString()}`],
                   ].map(([k,v])=>(
                     <div key={k} style={{background:'#F9FAFB',borderRadius:8,padding:12}}>

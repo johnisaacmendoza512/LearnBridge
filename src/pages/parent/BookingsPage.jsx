@@ -243,12 +243,22 @@ export default function BookingsPage() {
         amount:   earnings,
       });
 
-      // Record tutor earning
+      // Record tutor earning (90%)
       await supabase.from('wallet_transactions').insert({
         user_id:     b.tutor_id,
         type:        'earning',
         amount:      earnings,
-        description: `90% earnings — ${b.subject} (${b.student?.name||'Student'}) via LearnBridge`,
+        description: `Earnings (90%) — ${b.subject} session with ${b.student?.name||'Student'}`,
+        booking_id:  b.id,
+        status:      'completed',
+      });
+
+      // Record LearnBridge commission deduction (10%) in tutor's transaction history
+      await supabase.from('wallet_transactions').insert({
+        user_id:     b.tutor_id,
+        type:        'deduction',
+        amount:      fee,
+        description: `LearnBridge platform fee (10%) — ${b.subject} session`,
         booking_id:  b.id,
         status:      'completed',
       });
@@ -366,13 +376,13 @@ export default function BookingsPage() {
                             style={{background:'#22C55E',color:'#fff',border:'none',fontWeight:700}}
                             onClick={()=>handleConfirmAndPay(b)}
                             disabled={payingId===b.id}>
-                            {payingId===b.id ? '⏳ Processing...' : '✅ Confirm & Pay ₱8'}
+                            {payingId===b.id ? '⏳ Processing...' : 'Confirm & Pay'}
                           </button>
                         )}
                         {/* Paid badge */}
                         {b.payment_status === 'paid' && (
-                          <span style={{fontSize:11,fontWeight:700,padding:'3px 10px',borderRadius:20,background:'#D1FAE5',color:'#065F46'}}>
-                            ✅ Paid
+                          <span style={{fontSize:14,fontWeight:700,padding:'5px 20px',borderRadius:20,background:'#D1FAE5',color:'#065F46'}}>
+                            Paid
                           </span>
                         )}
                         {/* Cancel — pending only */}

@@ -85,6 +85,7 @@ function RoleMessages() {
 
 function RoleSessions() {
   const { profile } = useAuth();
+  if (profile?.role === 'admin') return <AdminSessionsPage />;
   if (profile?.role === 'tutor') return <SessionsPage />;
   return <ParentSessionsPage />;
 }

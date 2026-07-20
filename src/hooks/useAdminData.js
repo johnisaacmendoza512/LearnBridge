@@ -63,19 +63,15 @@ export function useAdminData() {
 
       setAllUsers(mergedUsers);
 
-      // ── Sessions ──────────────────────────────────────────────────────
+      // ── Sessions (all bookings with details) ──────────────────────────
       const { data: sessions, error: sErr } = await supabase
-        .from('sessions')
+        .from('bookings')
         .select(`
-          id, session_number, scheduled_date, scheduled_time,
-          status, topic_covered, performance_indicator, tutor_comments, created_at,
-          booking_id,
-          booking:booking_id (
-            id, subject, session_mode, status, total_amount, commission_amount,
-            tutor:tutor_id   ( id, full_name ),
-            parent:parent_id ( id, full_name ),
-            student:student_id ( id, name, grade_level )
-          )
+          id, subject, session_mode, status, total_amount,
+          payment_status, paid_at, created_at, scheduled_date,
+          tutor:tutor_id   ( id, full_name, email ),
+          parent:parent_id ( id, full_name, email ),
+          student:student_id ( id, name, grade_level )
         `)
         .order('created_at', { ascending: false });
       if (sErr) throw sErr;

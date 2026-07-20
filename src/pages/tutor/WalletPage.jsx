@@ -78,15 +78,19 @@ export default function WalletPage() {
   };
 
   const typeConfig = {
-    earning:    { label:'Earning',    color:'#065F46', bg:'#D1FAE5', icon:'💰', sign:'+' },
-    withdrawal: { label:'Withdrawal', color:'#DC2626', bg:'#FEE2E2', icon:'📤', sign:'-' },
-    deduction:  { label:'Deduction',  color:'#D97706', bg:'#FEF9C3', icon:'💳', sign:'-' },
-    topup:      { label:'Top Up',     color:'#1D4ED8', bg:'#EFF6FF', icon:'💳', sign:'+' },
+    earning:    { label:'Session Earning',    color:'#065F46', bg:'#D1FAE5', icon:'💰', sign:'+' },
+    withdrawal: { label:'Withdrawal',         color:'#DC2626', bg:'#FEE2E2', icon:'📤', sign:'-' },
+    deduction:  { label:'Platform Fee (10%)', color:'#D97706', bg:'#FEF9C3', icon:'🏛',  sign:'-' },
+    topup:      { label:'Top Up',             color:'#1D4ED8', bg:'#EFF6FF', icon:'💳', sign:'+' },
   };
 
-  const totalEarned    = transactions.filter(t=>t.type==='earning').reduce((s,t)=>s+Number(t.amount||0),0);
-  const totalWithdrawn = transactions.filter(t=>t.type==='withdrawal').reduce((s,t)=>s+Number(t.amount||0),0);
-  const pendingWithdraw= transactions.filter(t=>t.type==='withdrawal'&&t.status==='pending').reduce((s,t)=>s+Number(t.amount||0),0);
+  // Total earned = sum of all earning transactions
+  // Also sum withdrawn amounts to get gross earned
+  const totalEarnings  = transactions.filter(t=>t.type==='earning').reduce((s,t)=>s+Number(t.amount||0),0);
+  const totalWithdrawn = transactions.filter(t=>t.type==='withdrawal'&&t.status!=='failed').reduce((s,t)=>s+Number(t.amount||0),0);
+  // Gross total = current balance + all withdrawals + any earning transactions
+  const totalEarned    = totalEarnings > 0 ? totalEarnings : walletBalance + totalWithdrawn;
+  const totalCommission = transactions.filter(t=>t.type==='deduction').reduce((s,t)=>s+Number(t.amount||0),0);
 
   return (
     <div className="fade-in">
@@ -117,9 +121,9 @@ export default function WalletPage() {
       {/* Summary cards */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:16,marginBottom:24}}>
         {[
-          {label:'Total Earned',      value:`₱${totalEarned.toLocaleString('en-PH',{minimumFractionDigits:2})}`,    bg:'#D1FAE5',color:'#065F46',icon:'💰'},
-          {label:'Total Withdrawn',   value:`₱${totalWithdrawn.toLocaleString('en-PH',{minimumFractionDigits:2})}`, bg:'#FEE2E2',color:'#DC2626',icon:'📤'},
-          {label:'Pending Withdrawal',value:`₱${pendingWithdraw.toLocaleString('en-PH',{minimumFractionDigits:2})}`,bg:'#FEF9C3',color:'#92400E',icon:'⏳'},
+          {label:'Total Earned (90%)',      value:`₱${totalEarned.toLocaleString('en-PH',{minimumFractionDigits:2})}`,       bg:'#D1FAE5',color:'#065F46',icon:'💰'},
+          {label:'Platform Fee (10%)',       value:`₱${totalCommission.toLocaleString('en-PH',{minimumFractionDigits:2})}`,    bg:'#FEF9C3',color:'#D97706',icon:'🏛'},
+          {label:'Total Withdrawn',         value:`₱${totalWithdrawn.toLocaleString('en-PH',{minimumFractionDigits:2})}`,     bg:'#FEE2E2',color:'#DC2626',icon:'📤'},
         ].map(c=>(
           <div key={c.label} style={{background:c.bg,borderRadius:14,padding:'16px 20px'}}>
             <div style={{fontSize:24,marginBottom:6}}>{c.icon}</div>
@@ -128,6 +132,7 @@ export default function WalletPage() {
           </div>
         ))}
       </div>
+
 
 
       {/* Transaction history */}

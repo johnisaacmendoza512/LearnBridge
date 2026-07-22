@@ -8,6 +8,7 @@ import Spinner from '../../components/ui/Spinner';
 import EmptyState from '../../components/ui/EmptyState';
 import Modal from '../../components/ui/Modal';
 import tokens from '../../lib/tokens';
+import ZoomMeeting from '../../components/ZoomMeeting';
 
 const QUIZ_TYPES = {
   formative:  { label:'📝 Formative',       color:'#6366F1', bg:'#EEF2FF', short:'FA' },
@@ -55,6 +56,7 @@ export default function ParentSessionsPage() {
   const [selBooking,    setSelBooking]    = useState(null);
   const [selStudent,    setSelStudent]    = useState(null);
   const [modules,       setModules]       = useState([]);
+  const [activeTab,     setActiveTab]     = useState('modules');
   const [progress,      setProgress]      = useState({});
   const [loading,       setLoading]       = useState(false);
   const [toast,         setToast]         = useState(null);
@@ -125,7 +127,10 @@ export default function ParentSessionsPage() {
       subtopics:(subs||[]).filter(s=>s.module_id===mod.id).map(sub=>({
         ...sub,
         materials:(mats||[]).filter(mat=>mat.subtopic_id===sub.id),
-        quizzes:  (quizzes||[]).filter(q=>q.subtopic_id===sub.id&&q.status==='published'),
+        quizzes:  (quizzes||[]).filter(q=>q.subtopic_id===sub.id&&q.status==='published').map(q=>({
+          ...q,
+          bestAttempt: attemptMap[q.id]||null,
+        })),
       })),
       moduleMaterials:(mats||[]).filter(mat=>mat.module_id===mod.id&&!mat.subtopic_id),
       quizzes:(quizzes||[]).filter(q=>q.module_id===mod.id&&!q.subtopic_id).map(q=>({
@@ -432,8 +437,28 @@ export default function ParentSessionsPage() {
         )}
       </div>
 
+      {/* ── Tabs ── */}
+      <div className="flex gap-0 mb-20" style={{borderBottom:`2px solid ${tokens.border}`}}>
+        {[
+          {key:'modules',     label:'📚 Modules'},
+          {key:'progress',    label:'📊 Student Progress'},
+          {key:'video',       label:'🎥 Video Meeting'},
+          {key:'announcements',label:'📢 Announcements'},
+        ].map(t=>(
+          <button key={t.key} onClick={()=>setActiveTab(t.key)}
+            style={{padding:'10px 20px',border:'none',borderBottom:`3px solid ${activeTab===t.key?tokens.primary:'transparent'}`,background:'none',cursor:'pointer',fontWeight:700,fontSize:13,color:activeTab===t.key?tokens.primary:tokens.muted,marginBottom:-2}}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Video Meeting Tab ── */}
+      {activeTab==='video' && (
+        <ZoomMeeting booking={selBooking} isTutor={false} />
+      )}
+
       {/* ── Pinned Announcements from Tutor ── */}
-      {announcements.length>0&&(
+      {activeTab==='announcements' && (announcements.length>0 ? (
         <div style={{marginBottom:20}}>
           {announcements.map(ann=>(
             <div key={ann.id} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'14px 18px',borderRadius:12,background:'#FFFBEB',border:'2px solid #FDE68A',marginBottom:10}}>
@@ -450,9 +475,126 @@ export default function ParentSessionsPage() {
             </div>
           ))}
         </div>
+      ) : (
+        <div className="card p-40 text-center">
+          <div style={{fontSize:48,marginBottom:12}}>📢</div>
+          <div className="font-jakarta font-bold mb-8" style={{fontSize:18}}>No announcements yet</div>
+          <p className="text-sm text-muted">Your tutor hasn't posted any announcements yet.</p>
+        </div>
+      ))}
+
+      {/* ── Student Progress Tab ── */}
+      {activeTab==='progress' && (
+        <div>
+          {(() => {
+            // Collect all quiz attempts across all modules
+            const allQuizzes = modules.flatMap(mod => [
+              ...mod.quizzes.map(q => ({ ...q, moduleName: mod.title, subtopicName: null })),
+              ...mod.subtopics.flatMap(sub =>
+                sub.quizzes.map(q => ({ ...q, moduleName: mod.title, subtopicName: sub.title }))
+              ),
+            ]);
+            const attempted = allQuizzes.filter(q => q.bestAttempt);
+            const notAttempted = allQuizzes.filter(q => !q.bestAttempt);
+
+            if (allQuizzes.length === 0) return (
+              <div className="card p-40 text-center">
+                <div style={{fontSize:48,marginBottom:12}}>📊</div>
+                <div className="font-jakarta font-bold mb-8" style={{fontSize:18}}>No quizzes yet</div>
+                <p className="text-sm text-muted">No quizzes have been published yet.</p>
+              </div>
+            );
+
+            return (
+              <div style={{display:'flex',flexDirection:'column',gap:12}}>
+                {/* Summary */}
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:8}}>
+                  {[
+                    {label:'Total Quizzes',  value:allQuizzes.length,                                  bg:'#EFF6FF',color:'#1D4ED8'},
+                    {label:'Attempted',      value:attempted.length,                                   bg:'#FEF9C3',color:'#92400E'},
+                    {label:'Passed',         value:attempted.filter(q=>q.bestAttempt?.passed).length,  bg:'#D1FAE5',color:'#065F46'},
+                  ].map(c=>(
+                    <div key={c.label} style={{background:c.bg,borderRadius:12,padding:'16px 20px',textAlign:'center'}}>
+                      <div style={{fontSize:28,fontWeight:900,color:c.color}}>{c.value}</div>
+                      <div style={{fontSize:12,color:c.color,opacity:0.8}}>{c.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Attempted quizzes */}
+                {attempted.length > 0 && (
+                  <div className="card" style={{overflow:'hidden'}}>
+                    <div style={{padding:'12px 20px',borderBottom:`1px solid ${tokens.border}`,fontWeight:700,fontSize:14}}>
+                      📝 Quiz Attempts
+                    </div>
+                    {attempted.map(q => {
+                      const qType = QUIZ_TYPES[q.quiz_type] || QUIZ_TYPES.formative;
+                      const best  = q.bestAttempt;
+                      return (
+                        <div key={q.id} style={{padding:'14px 20px',borderBottom:`1px solid ${tokens.border}`,display:'flex',alignItems:'center',gap:14}}>
+                          <div style={{width:40,height:40,borderRadius:10,background:qType.bg,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                            <span style={{fontSize:12,fontWeight:900,color:qType.color}}>{qType.short||'Q'}</span>
+                          </div>
+                          <div style={{flex:1}}>
+                            <div style={{fontWeight:700,fontSize:14}}>{q.title}</div>
+                            <div style={{fontSize:12,color:tokens.muted,marginTop:2}}>
+                              <span style={{fontWeight:600,color:qType.color}}>{qType.label}</span>
+                              {q.subtopicName && <span> · Subtopic: <strong>{q.subtopicName}</strong></span>}
+                              {q.moduleName   && <span> · Module: {q.moduleName}</span>}
+                            </div>
+                          </div>
+                          <div style={{textAlign:'right'}}>
+                            <div style={{fontSize:20,fontWeight:900,color:best?.passed?'#065F46':'#DC2626'}}>
+                              {best?.score}%
+                            </div>
+                            <div style={{fontSize:11,color:tokens.muted}}>
+                              {best?.correct}/{best?.total||quizQuestions?.length||'?'} correct · Attempt {best?.attempt_num}
+                            </div>
+                            <span style={{fontSize:11,fontWeight:700,padding:'2px 8px',borderRadius:20,
+                              background:best?.passed?'#D1FAE5':'#FEE2E2',
+                              color:best?.passed?'#065F46':'#DC2626'}}>
+                              {best?.passed?'✓ Passed':'✗ Failed'}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Not yet attempted */}
+                {notAttempted.length > 0 && (
+                  <div className="card" style={{overflow:'hidden'}}>
+                    <div style={{padding:'12px 20px',borderBottom:`1px solid ${tokens.border}`,fontWeight:700,fontSize:14,color:tokens.muted}}>
+                      ⏳ Not Yet Attempted ({notAttempted.length})
+                    </div>
+                    {notAttempted.map(q => {
+                      const qType = QUIZ_TYPES[q.quiz_type] || QUIZ_TYPES.formative;
+                      return (
+                        <div key={q.id} style={{padding:'12px 20px',borderBottom:`1px solid ${tokens.border}`,display:'flex',alignItems:'center',gap:14,opacity:0.7}}>
+                          <div style={{width:36,height:36,borderRadius:8,background:qType.bg,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                            <span style={{fontSize:11,fontWeight:900,color:qType.color}}>{qType.short||'Q'}</span>
+                          </div>
+                          <div style={{flex:1}}>
+                            <div style={{fontWeight:600,fontSize:13}}>{q.title}</div>
+                            <div style={{fontSize:12,color:tokens.muted}}>
+                              <span style={{fontWeight:600,color:qType.color}}>{qType.label}</span>
+                              {q.subtopicName && <span> · Subtopic: <strong>{q.subtopicName}</strong></span>}
+                            </div>
+                          </div>
+                          <span style={{fontSize:11,color:tokens.muted}}>Not attempted</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
       )}
 
-      {loading ? <Spinner dark size={28}/> : modules.length===0
+      {activeTab==='modules' && (loading ? <Spinner dark size={28}/> : modules.length===0
         ? <div className="card p-40 text-center">
             <div style={{fontSize:52,marginBottom:16}}>📖</div>
             <div className="font-jakarta font-bold mb-8" style={{fontSize:18}}>No modules yet</div>
@@ -580,7 +722,8 @@ export default function ParentSessionsPage() {
                 )}
               </div>
             ))}
-          </div>}
+          </div>
+      )}
     </div>
   );
 }

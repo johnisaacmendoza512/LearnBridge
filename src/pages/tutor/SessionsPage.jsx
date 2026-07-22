@@ -9,6 +9,7 @@ import Icon from '../../components/ui/Icon';
 import Spinner from '../../components/ui/Spinner';
 import EmptyState from '../../components/ui/EmptyState';
 import tokens from '../../lib/tokens';
+import ZoomMeeting from '../../components/ZoomMeeting';
 
 const MATERIAL_TYPES = [
   { value:'intro',         label:'INTRO',         color:'#6366F1', bg:'#EEF2FF' },
@@ -937,6 +938,7 @@ Return ONLY a valid JSON array:
         {[
           {key:'modules', label:'📖 Sessions & Quizzes', count:modules.length},
           {key:'progress', label:'📊 Student Progress', count:quizAttempts.length+matViews.length},
+          {key:'video',    label:'🎥 Video Meeting',     count:null},
         ].map(t=>(
           <button key={t.key} onClick={()=>setActiveTab(t.key)}
             style={{padding:'10px 24px',border:'none',borderBottom:`3px solid ${activeTab===t.key?tokens.primary:'transparent'}`,background:'none',cursor:'pointer',fontWeight:700,fontSize:14,color:activeTab===t.key?tokens.primary:tokens.muted,marginBottom:-2,transition:'all 0.15s',display:'flex',alignItems:'center',gap:8}}>
@@ -1065,6 +1067,10 @@ Return ONLY a valid JSON array:
             </div>
           )}
         </div>
+      )}
+
+      {activeTab==='video'&&(
+        <ZoomMeeting booking={selBooking} isTutor={true} />
       )}
 
       {activeTab==='modules'&&(

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useBookings } from '../../hooks/useBookings';
@@ -10,10 +10,12 @@ import Modal from '../../components/ui/Modal';
 import tokens from '../../lib/tokens';
 
 const QUIZ_TYPES = {
-  formative: { label:'📝 Formative', color:'#6366F1', bg:'#EEF2FF' },
-  summative: { label:'📊 Summative', color:'#059669', bg:'#ECFDF5' },
-  practice:  { label:'🎯 Practice',  color:'#D97706', bg:'#FFFBEB' },
-  activity:  { label:'🏃 Activity',  color:'#BE185D', bg:'#FDF2F8' },
+  formative:  { label:'📝 Formative',       color:'#6366F1', bg:'#EEF2FF', short:'FA' },
+  summative:  { label:'📊 Summative',       color:'#059669', bg:'#ECFDF5', short:'SA' },
+  practice:   { label:'🎯 Practice',        color:'#D97706', bg:'#FFFBEB', short:'PQ' },
+  activity:   { label:'🏃 Activity',        color:'#BE185D', bg:'#FDF2F8', short:'ACT'},
+  checkpoint: { label:'🔖 Checkpoint Exam', color:'#DC2626', bg:'#FEE2E2', short:'CE' },
+  short_quiz: { label:'⚡ Short Quiz',      color:'#0891B2', bg:'#E0F2FE', short:'SQ' },
 };
 
 const MATERIAL_TYPES = [
@@ -68,6 +70,8 @@ export default function ParentSessionsPage() {
   const [answers,       setAnswers]       = useState({});
   const [quizResult,    setQuizResult]    = useState(null);
   const [submitting,    setSubmitting]    = useState(false);
+  const [timeLeft,      setTimeLeft]      = useState(null);
+  const timerRef = useRef(null);
   const [answerErrors,  setAnswerErrors]  = useState(false);
 
   const showToast = (msg,type='success') => { setToast({msg,type}); setTimeout(()=>setToast(null),4000); };
@@ -121,9 +125,10 @@ export default function ParentSessionsPage() {
       subtopics:(subs||[]).filter(s=>s.module_id===mod.id).map(sub=>({
         ...sub,
         materials:(mats||[]).filter(mat=>mat.subtopic_id===sub.id),
+        quizzes:  (quizzes||[]).filter(q=>q.subtopic_id===sub.id&&q.status==='published'),
       })),
       moduleMaterials:(mats||[]).filter(mat=>mat.module_id===mod.id&&!mat.subtopic_id),
-      quizzes:(quizzes||[]).filter(q=>q.module_id===mod.id).map(q=>({
+      quizzes:(quizzes||[]).filter(q=>q.module_id===mod.id&&!q.subtopic_id).map(q=>({
         ...q,
         bestAttempt: attemptMap[q.id]||null,
       })),
@@ -154,7 +159,21 @@ export default function ParentSessionsPage() {
     setAnswers({});
     setQuizResult(null);
     setAnswerErrors(false);
+    // Start timer if quiz has time limit
+    if (quiz.time_limit > 0) {
+      setTimeLeft(quiz.time_limit * 60); // convert minutes to seconds
+    } else {
+      setTimeLeft(null);
+    }
   };
+
+  // Timer countdown
+  useEffect(() => {
+    if (timeLeft === null) return;
+    if (timeLeft <= 0) { submitQuiz(); return; }
+    timerRef.current = setInterval(() => setTimeLeft(t => t - 1), 1000);
+    return () => clearInterval(timerRef.current);
+  }, [timeLeft]);
 
   const submitQuiz = async () => {
     if (Object.keys(answers).length<quizQuestions.length) {
@@ -167,8 +186,14 @@ export default function ParentSessionsPage() {
       quizQuestions.forEach((q,i)=>{ if(answers[i]===q.correct_index) correct++; });
       const score = Math.round((correct/quizQuestions.length)*100);
       const passed = score>=activeQuiz.pass_score;
-      const prevAttempts = activeQuiz.bestAttempt?.attempt_num||0;
-      const newAttemptNum = prevAttempts+1;
+
+      // Get actual attempt count from DB to avoid duplicate key
+      const { count } = await supabase
+        .from('student_quiz_attempts')
+        .select('*', { count: 'exact', head: true })
+        .eq('quiz_id', activeQuiz.id)
+        .eq('student_id', selStudent.id);
+      const newAttemptNum = (count || 0) + 1;
 
       const {error} = await supabase.from('student_quiz_attempts').insert({
         quiz_id:      activeQuiz.id,
@@ -183,6 +208,8 @@ export default function ParentSessionsPage() {
       if (error) { showToast(`Failed to save: ${error.message}`,'error'); return; }
 
       setQuizResult({score,passed,correct,total:quizQuestions.length,attemptNum:newAttemptNum});
+      clearInterval(timerRef.current);
+      setTimeLeft(null);
       // Refresh to update attempt counts
       fetchModulesAndProgress(selBooking.id,selStudent.id);
     } finally { setSubmitting(false); }
@@ -238,6 +265,15 @@ export default function ParentSessionsPage() {
             Pass score: {activeQuiz.pass_score}% · Attempt {prevAttempts+1} of {activeQuiz.max_attempts}
             {activeQuiz.bestAttempt?.score>0&&` · Best score: ${activeQuiz.bestAttempt.score}%`}
           </p>}
+          {/* Timer */}
+          {timeLeft !== null && !quizResult && (
+            <div style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 16px',borderRadius:20,marginTop:8,
+              background:timeLeft<60?'#FEE2E2':timeLeft<300?'#FEF9C3':'#D1FAE5',
+              color:timeLeft<60?'#DC2626':timeLeft<300?'#92400E':'#065F46',
+              fontWeight:800,fontSize:16}}>
+              ⏱ {Math.floor(timeLeft/60)}:{String(timeLeft%60).padStart(2,'0')}
+            </div>
+          )}
           {activeQuiz.instructions&&!quizResult&&(
             <div style={{background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:10,padding:'10px 14px',marginTop:10,fontSize:13,color:'#1D4ED8'}}>📋 {activeQuiz.instructions}</div>
           )}
@@ -471,6 +507,37 @@ export default function ParentSessionsPage() {
                             <span style={{fontSize:11,color:tokens.primary,fontWeight:600}}>Read →</span>
                           </div>
                         ))}
+                        {/* Subtopic Quizzes */}
+                        {sub.quizzes?.length>0&&(
+                          <div style={{marginTop:6}}>
+                            {sub.quizzes.map(quiz=>{
+                              const qType = QUIZ_TYPES[quiz.quiz_type]||QUIZ_TYPES.formative;
+                              const best = quiz.bestAttempt;
+                              const passed = best?.passed||false;
+                              const attempts = best?.attempt_num||0;
+                              const noAttemptsLeft = attempts>=quiz.max_attempts&&!passed;
+                              return (
+                                <div key={quiz.id} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',borderRadius:10,background:passed?'#F0FDF4':noAttemptsLeft?'#FEF2F2':'#F0F9FF',border:`1.5px solid ${passed?'#6EE7B7':noAttemptsLeft?'#FCA5A5':'#BAE6FD'}`,marginBottom:8}}>
+                                  <div style={{width:36,height:36,borderRadius:8,background:qType.bg,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                                    <span style={{fontSize:11,fontWeight:900,color:qType.color}}>{qType.short||qType.label?.split(' ')[0]}</span>
+                                  </div>
+                                  <div style={{flex:1}}>
+                                    <div className="font-jakarta font-bold" style={{fontSize:13}}>{quiz.title}</div>
+                                    <div style={{fontSize:11,color:tokens.muted,marginTop:2}}>
+                                      Pass {quiz.pass_score}% · Max {quiz.max_attempts} attempts{quiz.time_limit>0?` · ${quiz.time_limit} min`:''}
+                                      {passed&&<span style={{color:'#065F46',fontWeight:700,marginLeft:6}}>✓ Passed</span>}
+                                    </div>
+                                  </div>
+                                  {!passed&&!noAttemptsLeft&&(
+                                    <button className="btn btn-primary btn-sm" onClick={()=>openQuiz(quiz)}>Take Quiz</button>
+                                  )}
+                                  {noAttemptsLeft&&<span style={{fontSize:11,color:'#DC2626',fontWeight:700}}>No attempts left</span>}
+                                  {passed&&<span style={{fontSize:11,color:'#065F46',fontWeight:700}}>✓ Done</span>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     ))}
 

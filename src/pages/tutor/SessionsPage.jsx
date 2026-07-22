@@ -22,10 +22,12 @@ const MATERIAL_TYPES = [
 ];
 
 const QUIZ_TYPES = [
-  { value:'formative', label:'📝 Formative', short:'FA',  color:'#6366F1', bg:'#EEF2FF' },
-  { value:'summative', label:'📊 Summative', short:'SA',  color:'#059669', bg:'#ECFDF5' },
-  { value:'practice',  label:'🎯 Practice',  short:'PQ',  color:'#D97706', bg:'#FFFBEB' },
-  { value:'activity',  label:'🏃 Activity',  short:'ACT', color:'#BE185D', bg:'#FDF2F8' },
+  { value:'formative',   label:'📝 Formative',        short:'FA',  color:'#6366F1', bg:'#EEF2FF' },
+  { value:'summative',   label:'📊 Summative',        short:'SA',  color:'#059669', bg:'#ECFDF5' },
+  { value:'practice',    label:'🎯 Practice',         short:'PQ',  color:'#D97706', bg:'#FFFBEB' },
+  { value:'activity',    label:'🏃 Activity',         short:'ACT', color:'#BE185D', bg:'#FDF2F8' },
+  { value:'checkpoint',  label:'🔖 Checkpoint Exam',  short:'CE',  color:'#DC2626', bg:'#FEE2E2' },
+  { value:'short_quiz',  label:'⚡ Short Quiz',       short:'SQ',  color:'#0891B2', bg:'#E0F2FE' },
 ];
 
 function Toast({ msg, type, onClose }) {
@@ -150,9 +152,10 @@ export default function TutorSessionsPage() {
       subtopics: (subs||[]).filter(s=>s.module_id===mod.id).map(sub=>({
         ...sub,
         materials:(mats||[]).filter(mat=>mat.subtopic_id===sub.id),
+        quizzes:  (quizzes||[]).filter(q=>q.subtopic_id===sub.id),
       })),
       moduleMaterials: (mats||[]).filter(mat=>mat.module_id===mod.id&&!mat.subtopic_id),
-      quizzes: (quizzes||[]).filter(q=>q.module_id===mod.id),
+      quizzes: (quizzes||[]).filter(q=>q.module_id===mod.id&&!q.subtopic_id),
     })));
     setLoading(false);
   },[]);
@@ -599,7 +602,8 @@ Return ONLY a valid JSON array:
       const payload = {
         booking_id:   selBooking.id,
         tutor_id:     user.id,
-        module_id:    quizModal.module.id, // always linked to a module
+        module_id:    quizModal.module.id,
+        subtopic_id:  quizModal.subtopic?.id || null, // link to subtopic if created from subtopic
         title:        quizForm.title,
         quiz_type:    quizForm.quiz_type,
         instructions: quizForm.instructions||null,
@@ -954,9 +958,15 @@ Return ONLY a valid JSON array:
           ) : (
             <div style={{display:'flex',flexDirection:'column',gap:20}}>
 
-              {/* Quiz scores per module */}
+              {/* Quiz scores per module — including subtopic quizzes */}
               {modules.map(mod=>{
-                const modQuizzes = mod.quizzes||[];
+                // Combine module-level quizzes AND subtopic quizzes
+                const modQuizzes = [
+                  ...(mod.quizzes||[]).map(q=>({...q, subtopicName: null})),
+                  ...(mod.subtopics||[]).flatMap(sub=>
+                    (sub.quizzes||[]).map(q=>({...q, subtopicName: sub.title}))
+                  ),
+                ];
                 if (modQuizzes.length===0) return null;
                 return (
                   <div key={mod.id} className="card" style={{overflow:'hidden'}}>
@@ -967,13 +977,14 @@ Return ONLY a valid JSON array:
                       {modQuizzes.map(quiz=>{
                         const attempts = quizAttempts.filter(a=>a.quiz_id===quiz.id);
                         const best = attempts.reduce((b,a)=>(!b||a.score>b.score)?a:b, null);
-                        const qType = {formative:{color:'#6366F1',bg:'#EEF2FF',label:'FA'},summative:{color:'#059669',bg:'#ECFDF5',label:'SA'},practice:{color:'#D97706',bg:'#FFFBEB',label:'PQ'},activity:{color:'#BE185D',bg:'#FDF2F8',label:'ACT'}};
-                        const qt = qType[quiz.quiz_type]||qType.formative;
+                        const qTypeDef = QUIZ_TYPES.find(t=>t.value===quiz.quiz_type)||QUIZ_TYPES[0];
+                        const qt = {color:qTypeDef.color, bg:qTypeDef.bg, label:qTypeDef.short};
                         return (
                           <div key={quiz.id} style={{marginBottom:16,paddingBottom:16,borderBottom:`1px solid ${tokens.border}`}}>
                             <div className="flex items-center gap-10 mb-10">
                               <span style={{fontSize:11,fontWeight:800,padding:'2px 8px',borderRadius:6,background:qt.bg,color:qt.color}}>{qt.label}</span>
                               <span className="font-semibold" style={{fontSize:13}}>{quiz.title}</span>
+                              {quiz.subtopicName && <span style={{fontSize:11,padding:'2px 8px',borderRadius:6,background:'#E0F2FE',color:'#0891B2',fontWeight:600}}>📌 {quiz.subtopicName}</span>}
                               <span style={{fontSize:11,color:tokens.muted,marginLeft:'auto'}}>Pass: {quiz.pass_score}% · Max {quiz.max_attempts} attempts</span>
                             </div>
                             {attempts.length===0 ? (
@@ -1168,12 +1179,42 @@ Return ONLY a valid JSON array:
                           <button className="btn btn-sm" style={{fontSize:11,padding:'2px 8px',background:tokens.primaryLight,color:tokens.primary}} onClick={()=>{setSubForm({title:sub.title});setSubModal({module:mod,subtopic:sub});}}>✏️</button>
                           <button className="btn btn-sm btn-danger" style={{fontSize:11,padding:'2px 8px'}} onClick={()=>deleteSubtopic(sub)}>✕</button>
                           <button className="btn btn-sm" style={{fontSize:11,padding:'3px 10px',background:'#F0FDF4',color:'#065F46',border:'1px solid #6EE7B7',marginLeft:'auto'}} onClick={()=>{setMatForm({title:'',material_type:'note',content:'',url:''});setMatModal({module:mod,subtopic:sub,material:null});}}>+ Material</button>
+                          <button className="btn btn-sm" style={{fontSize:11,padding:'3px 10px',background:'#E0F2FE',color:'#0891B2',border:'1px solid #BAE6FD'}} onClick={()=>{setQuizForm({title:'',quiz_type:'checkpoint',instructions:'',pass_score:75,max_attempts:3,time_limit:30});setQuizModal({module:mod,subtopic:sub,quiz:null,subtopicOnly:true});}}>+ Subtopic Quiz</button>
                         </div>
                         {sub.materials?.map(mat=>(
                           <MatRow key={mat.id} mat={mat}
                             onEdit={()=>{setMatForm({title:mat.title,material_type:mat.material_type,content:mat.content||'',url:mat.url||'',file:null,file_name:mat.file_name||'',file_type:mat.file_type||''});setMatFilePreview(mat.file_url?{url:mat.file_url,type:mat.file_type}:null);setMatModal({module:mod,subtopic:sub,material:mat});}}
                             onDelete={()=>deleteMaterial(mat)}/>
                         ))}
+                        {/* Subtopic Quizzes — shown directly under subtopic */}
+                        {sub.quizzes?.length>0&&(
+                          <div style={{marginTop:6,paddingLeft:8}}>
+                            {sub.quizzes.map(quiz=>{
+                              const qType = QUIZ_TYPES.find(t=>t.value===quiz.quiz_type);
+                              return (
+                                <div key={quiz.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',borderRadius:8,background:quiz.status==='published'?'#F0FDF4':'#F0F9FF',border:`1px solid ${quiz.status==='published'?'#6EE7B7':'#BAE6FD'}`,marginBottom:4}}>
+                                  <div style={{width:28,height:28,borderRadius:6,background:qType?.bg,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                                    <span style={{fontSize:10,fontWeight:900,color:qType?.color}}>{qType?.short}</span>
+                                  </div>
+                                  <div style={{flex:1}}>
+                                    <div style={{fontSize:12,fontWeight:600}}>{quiz.title}</div>
+                                    <div style={{fontSize:10,color:tokens.muted}}>Pass {quiz.pass_score}% · {quiz.time_limit>0?`${quiz.time_limit} min`:'No limit'}</div>
+                                  </div>
+                                  <span style={{fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:20,background:quiz.status==='published'?'#D1FAE5':'#FEF9C3',color:quiz.status==='published'?'#065F46':'#92400E'}}>
+                                    {quiz.status==='published'?'✓ Published':'Draft'}
+                                  </span>
+                                  <button className="btn btn-sm" style={{fontSize:10,padding:'2px 8px',background:'#EFF6FF',color:tokens.primary}} onClick={async()=>{setActiveQuiz(quiz);await fetchQuestions(quiz.id);}}>
+                                    Questions
+                                  </button>
+                                  <button className="btn btn-sm" style={{fontSize:10,padding:'2px 8px',background:'#F0FDF4',color:'#065F46',border:'1px solid #6EE7B7'}} onClick={()=>togglePublishQuiz(quiz)}>
+                                    {quiz.status==='published'?'Unpublish':'Publish'}
+                                  </button>
+                                  <button className="btn btn-sm btn-danger" style={{fontSize:10,padding:'2px 6px'}} onClick={()=>deleteQuiz(quiz)}><Icon name="x" size={10}/></button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     ))}
 
@@ -1287,14 +1328,14 @@ Return ONLY a valid JSON array:
       </Modal>
 
       {/* Quiz Modal */}
-      <Modal open={!!quizModal} onClose={()=>setQuizModal(null)} title={quizModal?.quiz?'✏️ Edit Quiz':'📝 Add Quiz to Module'}
+      <Modal open={!!quizModal} onClose={()=>setQuizModal(null)} title={quizModal?.subtopicOnly?'⚡ Add Subtopic Quiz':quizModal?.quiz?'✏️ Edit Quiz':'📝 Add Quiz to Module'}
         footer={<><button className="btn btn-ghost" onClick={()=>setQuizModal(null)}>Cancel</button><button className="btn btn-primary" onClick={saveQuiz} disabled={savingQuiz}>{savingQuiz?'Saving...':quizModal?.quiz?'Save Changes':'Create Quiz'}</button></>}>
         <div style={{background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:10,padding:'10px 14px',marginBottom:16,fontSize:13,color:'#1D4ED8'}}>
           📌 This quiz will appear inside <strong>Session {quizModal?.module?.module_number}: {quizModal?.module?.title}</strong>
         </div>
         <FormGroup label="Quiz Type">
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-            {QUIZ_TYPES.map(t=>(
+            {(quizModal?.subtopicOnly ? QUIZ_TYPES.filter(t=>t.value==='checkpoint'||t.value==='short_quiz') : QUIZ_TYPES).map(t=>(
               <button key={t.value} type="button" onClick={()=>setQuizForm(f=>({...f,quiz_type:t.value}))}
                 style={{padding:'10px 12px',borderRadius:10,cursor:'pointer',border:`2px solid ${quizForm.quiz_type===t.value?t.color:tokens.border}`,background:quizForm.quiz_type===t.value?t.bg:'#FAFAFA',textAlign:'left',transition:'all 0.15s'}}>
                 <div style={{fontWeight:700,fontSize:13,color:quizForm.quiz_type===t.value?t.color:tokens.dark}}>{t.label}</div>

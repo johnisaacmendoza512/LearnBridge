@@ -356,3 +356,18 @@ a { text-decoration: none; color: inherit; }
   .wallet-balance > div:first-child > div:nth-child(2) { font-size: 32px !important; overflow-wrap: anywhere; }
   .wallet-balance > button { width: 100%; padding: 12px 16px !important; }
 }
+
+/* ── Admin pages (Verification, Users, Question Bank) on mobile ── */
+@media (max-width: 768px) {
+  /* Rows of filter / tab buttons wrap instead of running off screen */
+  .app-main .flex:has(> .btn) { flex-wrap: wrap; }
+  .app-main .flex:has(> .btn) > .btn { flex-shrink: 0; }
+  /* Search + filters grid ("1fr auto") stacks */
+  .app-main [style*="grid-template-columns: 1fr auto"] { grid-template-columns: 1fr !important; }
+  /* Big main tab buttons (Tutor / Parent accounts) share the row */
+  .app-main .flex:has(> .btn[style*="padding: 10px 24px"]) > .btn { flex: 1 1 auto; padding: 10px 12px !important; font-size: 13px !important; justify-content: center; }
+  /* Truncated cells (e.g. question text) wrap fully inside cards */
+  .table td.truncate { white-space: normal !important; max-width: none !important; overflow: visible; text-overflow: clip; }
+  .table td.truncate::before { align-self: flex-start; }
+  .table td { overflow-wrap: anywhere; }
+}

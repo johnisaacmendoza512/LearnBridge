@@ -20,6 +20,20 @@ function labelTableCells(root) {
 
 export default function AppLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
+  // Desktop: sidebar minimized to icons only (remembered between visits)
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem('sidebarCollapsed') === '1'; } catch { return false; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0'); } catch {}
+  }, [collapsed]);
+
+  // Phones open the slide-in menu; larger screens minimize/expand the sidebar
+  const handleMenuClick = () => {
+    if (window.matchMedia('(max-width: 768px)').matches) setMenuOpen(o => !o);
+    else setCollapsed(c => !c);
+  };
   const { pathname } = useLocation();
   const mainRef = useRef(null);
 
@@ -37,10 +51,10 @@ export default function AppLayout() {
 
   return (
     <div className="app-layout">
-      <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} />
+      <Sidebar open={menuOpen} collapsed={collapsed} onClose={() => setMenuOpen(false)} />
       {menuOpen && <div className="sidebar-backdrop" onClick={() => setMenuOpen(false)} />}
       <div className="app-content">
-        <Topbar onMenuClick={() => setMenuOpen(o => !o)} />
+        <Topbar onMenuClick={handleMenuClick} />
         <main className="app-main" ref={mainRef}>
           <Outlet />
         </main>

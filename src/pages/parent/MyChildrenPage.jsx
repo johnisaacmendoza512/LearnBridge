@@ -33,7 +33,47 @@ const LEVELS = [
 ];
 
 const PASS_SCORE = 70; // percent to pass
-const QUESTIONS_PER_ASSESSMENT = 10;
+const QUESTIONS_PER_ASSESSMENT = 50;
+const ASSESSMENT_SUBJECTS = ['mathematics', 'english']; // split evenly: 25 each
+const SUBJECT_LABELS = { mathematics: 'Mathematics', english: 'English' };
+const shuffle = (arr) => [...arr].sort(() => Math.random() - 0.5);
+
+// Per-subject results: score, pass/needs-improvement, and the weakest subject
+function SubjectBreakdown({ results, compact = false }) {
+  const scores  = results?.subject_scores || {};
+  const details = results?.subject_details || {};
+  const entries = Object.entries(scores);
+  if (!entries.length) return null;
+  const lowest  = Math.min(...entries.map(([, v]) => v));
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap: compact ? 6 : 10, textAlign:'left', marginBottom: compact ? 0 : 20 }}>
+      {entries.map(([subj, val]) => {
+        const ok   = val >= PASS_SCORE;
+        const weak = !ok && val === lowest; // lowest failing subject (ties → both)
+        const d    = details[subj];
+        return (
+          <div key={subj} style={{ padding: compact ? '6px 10px' : '12px 14px', borderRadius:10, background: ok ? '#F0FDF4' : '#FEF2F2', border:`1.5px solid ${ok ? '#6EE7B7' : '#FCA5A5'}` }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, flexWrap:'wrap' }}>
+              <span style={{ fontSize: compact ? 12 : 14, fontWeight:700, color:tokens.dark }}>
+                {SUBJECT_LABELS[subj] || subj}{weak && <span style={{ marginLeft:6, fontSize:10, fontWeight:800, padding:'2px 8px', borderRadius:20, background:'#DC2626', color:'#fff' }}>WEAK SUBJECT</span>}
+              </span>
+              <span style={{ fontSize: compact ? 12 : 16, fontWeight:900, color: ok ? '#065F46' : '#DC2626' }}>{val}%</span>
+            </div>
+            {!compact && (
+              <div style={{ height:6, background:'#E5E7EB', borderRadius:3, overflow:'hidden', margin:'8px 0 6px' }}>
+                <div style={{ height:'100%', width:`${val}%`, background: ok ? '#22C55E' : '#F87171' }} />
+              </div>
+            )}
+            <div style={{ fontSize:11, color: ok ? '#065F46' : '#B91C1C' }}>
+              {ok ? 'Passed ✓' : 'Needs improvement'}{d ? ` · ${d.correct} of ${d.total} correct` : ''}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function Toast({ msg, type, onClose }) {
   if (!msg) return null;
@@ -132,15 +172,32 @@ export default function MyChildrenPage() {
     setAssessStep('quiz');
 
     try {
-      const { data, error } = await supabase
-        .from('questions')
-        .select('*')
-        .eq('level', level.value)
-        .eq('status', 'approved')
-        .limit(50); // fetch more then shuffle
+      // Load each subject separately so every subject is represented
+      // (a single query returned only the first rows — often all English)
+      const results = await Promise.all(ASSESSMENT_SUBJECTS.map(subj =>
+        supabase
+          .from('questions')
+          .select('*')
+          .eq('level', level.value)
+          .eq('status', 'approved')
+          .ilike('subject', subj)
+      ));
+      const failed = results.find(r => r.error);
+      if (failed) throw failed.error;
 
-      if (error) throw error;
-      if (!data || data.length === 0) {
+      // Equal share per subject (25 + 25); if one subject is short, fill from the other
+      const perSubject = Math.floor(QUESTIONS_PER_ASSESSMENT / ASSESSMENT_SUBJECTS.length);
+      const pools  = results.map(r => shuffle(r.data || []));
+      const picked = pools.map(p => p.slice(0, perSubject));
+      const extras = shuffle(pools.flatMap(p => p.slice(perSubject)));
+      const data   = [...picked.flat(), ...extras].slice(0, QUESTIONS_PER_ASSESSMENT);
+
+      const missing = ASSESSMENT_SUBJECTS.filter((s, i) => !pools[i].length).map(s => SUBJECT_LABELS[s]);
+      if (data.length && missing.length) {
+        showToast(`No approved ${missing.join(' / ')} questions for ${level.label} yet — the assessment will only cover the other subject.`, 'error');
+      }
+
+      if (data.length === 0) {
         showToast(`No approved questions available for ${level.label} yet. Please ask a tutor to add questions to the Question Bank.`, 'error');
         setAssessStudent(null);
         setAssessStep('level');
@@ -148,9 +205,8 @@ export default function MyChildrenPage() {
         return;
       }
 
-      // Shuffle and limit to QUESTIONS_PER_ASSESSMENT
-      const shuffled = [...data].sort(() => Math.random() - 0.5).slice(0, QUESTIONS_PER_ASSESSMENT);
-      setQuestions(shuffled);
+      // Mix subjects together for the quiz
+      setQuestions(shuffle(data));
     } catch (e) {
       showToast(e.message, 'error');
       setAssessStudent(null);
@@ -174,27 +230,39 @@ export default function MyChildrenPage() {
     setSubmitting(true);
     try {
       let correct = 0;
+      const perSubject = {}; // { english: { correct, total }, mathematics: {...} }
       questions.forEach((q, i) => {
-        const opts = q.options;
         const correctLetter = q.correct_answer; // 'A', 'B', 'C', 'D'
         const selectedLetter = answers[i];
-        if (selectedLetter === correctLetter) correct++;
+        const isCorrect = selectedLetter === correctLetter;
+        if (isCorrect) correct++;
+        const subj = (q.subject || '').toLowerCase().trim();
+        if (subj) {
+          perSubject[subj] = perSubject[subj] || { correct: 0, total: 0 };
+          perSubject[subj].total++;
+          if (isCorrect) perSubject[subj].correct++;
+        }
       });
 
       const score = Math.round((correct / questions.length) * 100);
       const passed = score >= PASS_SCORE;
+
+      // Score per subject (%) — used by Smart Match to find the child's weak subject
+      const subject_scores = Object.fromEntries(
+        Object.entries(perSubject).map(([s, v]) => [s, Math.round((v.correct / v.total) * 100)])
+      );
 
       // Save result to student profile
       const { error } = await supabase.from('students').update({
         assessment_level:        selectedLevel.value,
         assessment_score:        score,
         assessment_completed_at: new Date().toISOString(),
-        assessment_results:      { level:selectedLevel.value, score, passed, correct, total:questions.length },
+        assessment_results:      { level:selectedLevel.value, score, passed, correct, total:questions.length, subject_scores, subject_details: perSubject },
       }).eq('id', assessStudent.id);
 
       if (error) throw error;
 
-      setQuizResult({ score, passed, correct, total:questions.length });
+      setQuizResult({ score, passed, correct, total:questions.length, subject_scores, subject_details: perSubject });
       setAssessStep('result');
       if (refresh) await refresh();
     } catch (e) {
@@ -250,9 +318,14 @@ export default function MyChildrenPage() {
                       <span style={{ fontSize:18 }}>{level.icon}</span>
                       <div>
                         <div style={{ fontSize:13, fontWeight:700, color:level.color }}>{level.label} · {level.grades}</div>
-                        <div style={{ fontSize:11, color:level.color, opacity:0.8 }}>Score: {s.assessment_score}% · {s.assessment_results?.passed ? 'Passed ✓' : 'Needs improvement'}</div>
+                        <div style={{ fontSize:11, color:level.color, opacity:0.8 }}>Overall: {s.assessment_score}% · {s.assessment_results?.passed ? 'Passed ✓' : 'Needs improvement'}</div>
                       </div>
                     </div>
+                    {s.assessment_results?.subject_scores && (
+                      <div style={{ marginTop:10 }}>
+                        <SubjectBreakdown results={s.assessment_results} compact />
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -436,6 +509,9 @@ export default function MyChildrenPage() {
               <div style={{ height:'100%', borderRadius:6, width:`${quizResult.score}%`, background:quizResult.passed?`linear-gradient(90deg,${selectedLevel?.color},#4ADE80)`:'linear-gradient(90deg,#F87171,#F59E0B)', transition:'width 1s' }} />
             </div>
             <div style={{ fontSize:11, color:tokens.muted, marginBottom:24 }}>{PASS_SCORE}% pass mark</div>
+
+            {/* Per-subject breakdown — shows where the student is weak */}
+            <SubjectBreakdown results={quizResult} />
 
             {/* Level badge */}
             <div style={{ display:'inline-flex', alignItems:'center', gap:10, padding:'12px 20px', borderRadius:12, background:selectedLevel?.bg, border:`1px solid ${selectedLevel?.border}`, marginBottom:16 }}>

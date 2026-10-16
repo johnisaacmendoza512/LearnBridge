@@ -38,22 +38,22 @@ const navItems = {
   ],
 };
 
-export default function Sidebar({ open = false, onClose }) {
+export default function Sidebar({ open = false, collapsed = false, onClose }) {
   const { profile, signOut } = useAuth();
   const { unreadCount } = useAnnouncements();
   const items = navItems[profile?.role] || navItems.parent;
 
   return (
-    <aside className={`app-sidebar${open ? ' open' : ''}`} style={{ background: tokens.dark }}>
+    <aside className={`app-sidebar${open ? ' open' : ''}${collapsed ? ' collapsed' : ''}`} style={{ background: tokens.dark }}>
       {/* Brand */}
-      <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid rgba(255,255,255,.08)' }}>
+      <div className="sidebar-brand" style={{ padding: '20px 20px 16px', borderBottom: '1px solid rgba(255,255,255,.08)' }}>
         <div className="flex items-center gap-8">
           <img
             src={require('../../assets/learnbridge-logo.png')}
             alt="LearnBridge"
             style={{ width: 36, height: 36, objectFit: 'contain', flexShrink: 0 }}
           />
-          <div style={{ flex: 1 }}>
+          <div className="sidebar-text" style={{ flex: 1 }}>
             <div style={{ color: '#fff', fontWeight: 800, fontSize: 15, fontFamily: "'Plus Jakarta Sans'" }}>
               LearnBridge
             </div>
@@ -70,6 +70,8 @@ export default function Sidebar({ open = false, onClose }) {
         {items.map(item => (
           <NavLink
             key={item.to}
+            className="sidebar-link"
+            title={item.label}
             to={item.to}
             style={({ isActive }) => ({
               display: 'flex', alignItems: 'center', gap: 12,
@@ -84,9 +86,9 @@ export default function Sidebar({ open = false, onClose }) {
             })}
           >
             <Icon name={item.icon} size={16} color="currentColor" />
-            <span style={{ flex: 1 }}>{item.label}</span>
+            <span className="sidebar-text" style={{ flex: 1 }}>{item.label}</span>
             {item.badge && unreadCount > 0 && (
-              <div style={{
+              <div className="sidebar-badge" style={{
                 minWidth: 18, height: 18, borderRadius: 9,
                 background: tokens.danger, color: '#fff',
                 fontSize: 10, fontWeight: 800,
@@ -101,10 +103,10 @@ export default function Sidebar({ open = false, onClose }) {
       </nav>
 
       {/* User strip + sign-out */}
-      <div style={{ padding: '14px 16px', borderTop: '1px solid rgba(255,255,255,.08)' }}>
-        <div className="flex items-center gap-10 mb-12">
+      <div className="sidebar-footer" style={{ padding: '14px 16px', borderTop: '1px solid rgba(255,255,255,.08)' }}>
+        <div className="flex items-center gap-10 mb-12 sidebar-user">
           <Avatar name={profile?.full_name || 'U'} size={32} />
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="sidebar-text" style={{ flex: 1, minWidth: 0 }}>
             <div className="truncate" style={{ color: '#fff', fontSize: 13, fontWeight: 600 }}>
               {profile?.full_name || 'User'}
             </div>
@@ -115,10 +117,11 @@ export default function Sidebar({ open = false, onClose }) {
         </div>
         <button
           onClick={signOut}
+          title="Sign Out"
           className="btn btn-ghost btn-sm btn-full"
           style={{ color: '#9CA3AF', justifyContent: 'center' }}
         >
-          <Icon name="logout" size={14} color="#9CA3AF" /> Sign Out
+          <Icon name="logout" size={14} color="#9CA3AF" /> <span className="sidebar-text">Sign Out</span>
         </button>
       </div>
     </aside>

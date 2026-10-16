@@ -12,6 +12,7 @@ import { useBookings } from '../../hooks/useBookings';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import tokens from '../../lib/tokens';
+import { geocode, distanceKm, locationPoints } from '../../lib/geo';
 
 const ACCENT_COLORS = [tokens.primary, tokens.accent, tokens.muted];
 const HOURS = Array.from({length:15},(_,i)=>i+6); // 6am to 8pm
@@ -245,42 +246,98 @@ export default function FindTutorsPage() {
     } finally { setSaving(false); }
   };
 
+  // ── Location checker: parent ↔ tutor distance in km (for Factor 5) ───
+  const [locDistances, setLocDistances] = useState({}); // { tutorId: km }
+  const [locChecking,  setLocChecking]  = useState(false);
+
+  useEffect(() => {
+    if (mode !== 'smart' || !selectedChild || !profile?.location || !tutors.length) return;
+    let cancelled = false;
+    (async () => {
+      setLocChecking(true);
+      const home = await geocode(profile.location);
+      if (home) {
+        for (const t of tutors) {
+          if (cancelled) return;
+          if (!t.profile?.location) continue;
+          const spot = await geocode(t.profile.location);
+          if (spot && !cancelled) setLocDistances(d => ({ ...d, [t.id]: distanceKm(home, spot) }));
+        }
+      }
+      if (!cancelled) setLocChecking(false);
+    })();
+    return () => { cancelled = true; };
+  }, [mode, selectedChild, profile?.location, tutors]);
+
   // ── Smart Match Score ─────────────────────────────────────────────────
-  const calcMatchScore = (tutor) => {
-    const child = students.find(s => s.id === selectedChild);
-    if (!child || !child.assessment_results) return 0;
+  // Weighted rule-based matching (see paper): five factors summed to a score out of 100.
+  //   F1 Weak-subject certification 40% · F2 Overall certification avg 20%
+  //   F3 Rate vs budget 20% · F4 Gender preference 10% · F5 Location 10%
+  const norm = v => String(v ?? '').toLowerCase().trim();
 
-    const certScores  = tutor.certification_scores || {};
-    const weakSubject = child.assessment_results?.level === 'primary' ? 'english' : 'mathematics';
-    const childScore  = child.assessment_results?.score || 0;
-
-    // Factor 1: Tutor certification on weak subject (40%)
-    const weakScore   = certScores[weakSubject] || 0;
-    const f1          = (weakScore / 100) * 40;
-
-    // Factor 2: Overall certification score average (20%)
-    const scores      = Object.values(certScores);
-    const avgScore    = scores.length ? scores.reduce((a,b)=>a+b,0)/scores.length : 0;
-    const f2          = (avgScore / 100) * 20;
-
-    // Factor 3: Rate compatibility (20%)
-    const rate        = tutor.approved_rate || tutor.rate_per_session || 0;
-    const budgetNum   = budget ? parseInt(budget) : Infinity;
-    const f3          = rate <= budgetNum ? 20 : Math.max(0, 20 - ((rate - budgetNum) / budgetNum) * 20);
-
-    // Factor 4: Gender preference (10%)
-    const prefGender  = gender;
-    const f4          = !prefGender || tutor.profile?.gender === prefGender ? 10 : 0;
-
-    // Factor 5: Location (10%) — same location = full points
-    const f5          = tutor.profile?.location === child.notes ? 10 : 5; // partial match
-
-    return Math.round(f1 + f2 + f3 + f4 + f5);
+  // Child's weak subject = lowest subject score in the pre-assessment
+  const getWeakSubject = (child) => {
+    const res = child?.assessment_results;
+    if (!res) return null;
+    const subjScores = Object.entries(res.subject_scores || {});
+    if (subjScores.length) return subjScores.sort((a, b) => a[1] - b[1])[0][0];
+    // Older assessments saved before per-subject scores existed
+    return res.level === 'primary' ? 'english' : 'mathematics';
   };
 
-  // Base filter — only approved tutors
+  const calcMatchScore = (tutor) => {
+    const child = students.find(s => s.id === selectedChild);
+    if (!child || !child.assessment_results) return null;
+
+    const certScores  = Object.fromEntries(
+      Object.entries(tutor.certification_scores || {}).map(([k, v]) => [norm(k), Number(v) || 0])
+    );
+    const weakSubject = getWeakSubject(child);
+
+    // Factor 1: Certification score on the student's weak subject (40%)
+    const weakScore = certScores[weakSubject] || 0;
+    const f1        = (weakScore / 100) * 40;
+
+    // Factor 2: Overall average certification score across all topics (20%)
+    const scores    = Object.values(certScores);
+    const avgScore  = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+    const f2        = (avgScore / 100) * 20;
+
+    // Factor 3: Rate compatibility with the parent's budget (20%)
+    //   within budget = 20; over budget = reduced proportionally to how far over
+    const rate      = tutor.approved_rate || tutor.rate_per_session || 0;
+    const budgetNum = budget ? parseInt(budget) : null;
+    const f3        = !budgetNum || rate <= budgetNum
+      ? 20
+      : Math.max(0, 20 - ((rate - budgetNum) / budgetNum) * 20);
+
+    // Factor 4: Gender preference alignment (10%) — no preference = full points
+    const f4        = !gender || norm(tutor.profile?.gender) === norm(gender) ? 10 : 0;
+
+    // Factor 5: Location match (10%) — distance between parent and tutor
+    //   ≤5 km = 10, ≥50 km = 0, proportional in between.
+    //   If an address can't be located on the map, fall back to a text match.
+    const parentLoc = norm(profile?.location);
+    const tutorLoc  = norm(tutor.profile?.location);
+    const km        = locDistances[tutor.id];
+    const f5        = typeof km === 'number'
+      ? locationPoints(km)
+      : parentLoc && tutorLoc && (tutorLoc.includes(parentLoc) || parentLoc.includes(tutorLoc)) ? 10 : 0;
+
+    const total = f1 + f2 + f3 + f4 + f5;
+    return {
+      total: Math.round(total * 10) / 10,
+      distanceKm: typeof km === 'number' ? km : null,
+      weakSubject,
+      factors: [f1, f2, f3, f4, f5].map(f => Math.round(f * 10) / 10),
+    };
+  };
+
+  // Browse: budget & gender act as hard filters.
+  // Smart Match: they are scored (Factors 3 & 4) instead, so over-budget tutors are ranked lower, not hidden.
   const baseFiltered = tutors.filter(t => {
     if (subject && !(t.specialization||[]).includes(subject)) return false;
+    if (mode === 'smart' && selectedChild) return true;
     const rate = t.approved_rate||t.rate_per_session||0;
     if (budget && rate > parseInt(budget)) return false;
     if (gender && t.profile?.gender !== gender) return false;
@@ -289,9 +346,12 @@ export default function FindTutorsPage() {
 
   // Smart match: rank by score; Browse: show as-is
   const filtered = mode === 'smart' && selectedChild
-    ? [...baseFiltered]
-        .map(t => ({ ...t, matchScore: calcMatchScore(t) }))
-        .sort((a, b) => b.matchScore - a.matchScore)
+    ? baseFiltered
+        .map(t => {
+          const m = calcMatchScore(t);
+          return { ...t, matchScore: m?.total, matchFactors: m?.factors, weakSubject: m?.weakSubject, distanceKm: m?.distanceKm };
+        })
+        .sort((a, b) => (b.matchScore ?? 0) - (a.matchScore ?? 0))
     : baseFiltered;
 
   // Build calendar grid
@@ -379,7 +439,7 @@ export default function FindTutorsPage() {
         <h3 className="font-jakarta font-bold">
           {filtered.length} Tutor{filtered.length!==1?'s':''} Found
           {mode==='smart' && selectedChild && students.find(s=>s.id===selectedChild)?.assessment_results && (
-            <span style={{fontSize:12,color:'#7C3AED',fontWeight:400,marginLeft:8}}>— ranked by match score</span>
+            <span style={{fontSize:12,color:'#7C3AED',fontWeight:400,marginLeft:8}}>— ranked by match score{locChecking ? ' · 📍 checking locations…' : ''}{!profile?.location ? ' · add your location in My Profile for distance matching' : ''}</span>
           )}
         </h3>
         {filtered.length>0&&<Badge variant="success"><Icon name="check" size={10} color="#065F46"/> Verified & approved tutors only</Badge>}
@@ -400,15 +460,23 @@ export default function FindTutorsPage() {
                 <div style={{flex:1}}>
                   <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:2}}>
                     <div className="font-jakarta font-bold" style={{fontSize:16}}>{t.profile?.full_name||'Tutor'}</div>
-                    {mode==='smart' && t.matchScore !== undefined && (
+                    {mode==='smart' && t.matchScore != null && (
                       <span style={{fontSize:11,fontWeight:800,padding:'2px 8px',borderRadius:20,flexShrink:0,
                         background:t.matchScore>=80?'#D1FAE5':t.matchScore>=60?'#EFF6FF':'#FEF9C3',
                         color:t.matchScore>=80?'#065F46':t.matchScore>=60?'#1D4ED8':'#92400E'}}>
-                        {t.matchScore}% Match
+                        {t.matchScore.toFixed(1)}% Match
                       </span>
                     )}
                   </div>
                   <div className="text-sm text-muted mb-8">{(t.specialization||[]).join(' · ')||'General'}</div>
+                  {mode==='smart' && t.matchFactors && (
+                    <div title="Weak subject (40) · Overall cert (20) · Budget (20) · Gender (10) · Location (10)"
+                      style={{fontSize:11,color:'#7C3AED',background:'#F5F3FF',borderRadius:8,padding:'6px 8px',marginBottom:8,lineHeight:1.5}}>
+                      Weak subject: <strong style={{textTransform:'capitalize'}}>{t.weakSubject}</strong><br/>
+                      {['Weak subj','Overall','Budget','Gender','Location'].map((l,i)=>`${l} ${t.matchFactors[i].toFixed(1)}`).join(' · ')}
+                      {t.distanceKm != null && <><br/>📍 About {t.distanceKm < 1 ? '<1' : t.distanceKm.toFixed(1)} km away</>}
+                    </div>
+                  )}
                   <div className="flex gap-8 mb-12" style={{flexWrap:'wrap'}}>
                     <Badge variant="success">✓ Verified</Badge>
                     <Badge variant="info">₱{t.approved_rate||t.rate_per_session||0}/session</Badge>

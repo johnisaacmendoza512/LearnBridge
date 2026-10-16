@@ -908,7 +908,7 @@ Return ONLY a valid JSON array:
   return (
     <div className="fade-in">
       <Toast msg={toast?.msg} type={toast?.type} onClose={()=>setToast(null)}/>
-      <div className="flex items-center gap-12 mb-16">
+      <div className="flex items-center gap-12 mb-16 sess-header">
         <button className="btn btn-ghost btn-sm" onClick={()=>{setSelBooking(null);setModules([]);setExpanded({});setActiveTab('modules');}}>← Back</button>
         <div style={{flex:1}}>
           <h2 className="font-jakarta font-extrabold" style={{fontSize:20}}>📚 {selBooking.student?.name} — {selBooking.subject}</h2>
@@ -934,7 +934,7 @@ Return ONLY a valid JSON array:
       </div>
 
       {/* ── Tabs ── */}
-      <div className="flex gap-0 mb-20" style={{borderBottom:`2px solid ${tokens.border}`}}>
+      <div className="flex gap-0 mb-20 sess-tabs" style={{borderBottom:`2px solid ${tokens.border}`}}>
         {[
           {key:'modules', label:'📖 Sessions & Quizzes', count:modules.length},
           {key:'progress', label:'📊 Student Progress', count:quizAttempts.length+matViews.length},
@@ -1142,7 +1142,7 @@ Return ONLY a valid JSON array:
               <div key={mod.id} style={{border:`2px solid ${mod.status==='published'?tokens.primary:tokens.border}`,borderRadius:16,overflow:'hidden',background:'#fff'}}>
 
                 {/* Module header */}
-                <div style={{padding:'14px 20px',background:mod.status==='published'?tokens.primaryLight:'#F9FAFB',display:'flex',alignItems:'center',gap:12,cursor:'pointer'}} onClick={()=>toggle(mod.id)}>
+                <div className="sess-mod-head" style={{padding:'14px 20px',background:mod.status==='published'?tokens.primaryLight:'#F9FAFB',display:'flex',alignItems:'center',gap:12,cursor:'pointer'}} onClick={()=>toggle(mod.id)}>
                   <Icon name={expanded[mod.id]?'chevronDown':'chevronRight'} size={16} color={tokens.muted}/>
                   <div style={{flex:1}}>
                     <div className="font-jakarta font-bold" style={{fontSize:15}}>Session {mod.module_number}: {mod.title}</div>

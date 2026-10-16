@@ -23,18 +23,22 @@ const pageNames = {
   '/quizzes':            'Quizzes',
 };
 
-export default function Topbar() {
+export default function Topbar({ onMenuClick }) {
   const { profile } = useAuth();
   const { pathname } = useLocation();
   const title = pageNames[pathname] || 'LearnBridge';
 
   return (
-    <header style={{
-      height: 64, background: '#fff',
+    <header className="app-topbar" style={{
+      background: '#fff',
       borderBottom: `1px solid ${tokens.border}`,
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      padding: '0 24px', position: 'sticky', top: 0, zIndex: 100,
+      display: 'flex', alignItems: 'center', gap: 12,
+      position: 'sticky', top: 0, zIndex: 100,
     }}>
+      <button className="menu-toggle" onClick={onMenuClick} aria-label="Open menu">
+        <span /><span /><span />
+      </button>
+      <div className="app-topbar-title" style={{ fontWeight: 700, fontSize: 16, color: tokens.dark }}>{title}</div>
     </header>
   );
 }

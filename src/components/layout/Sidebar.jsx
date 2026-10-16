@@ -38,17 +38,13 @@ const navItems = {
   ],
 };
 
-export default function Sidebar() {
+export default function Sidebar({ open = false, onClose }) {
   const { profile, signOut } = useAuth();
   const { unreadCount } = useAnnouncements();
   const items = navItems[profile?.role] || navItems.parent;
 
   return (
-    <aside style={{
-      width: 240, minHeight: '100vh', background: tokens.dark,
-      display: 'flex', flexDirection: 'column', flexShrink: 0,
-      position: 'sticky', top: 0, height: '100vh', overflowY: 'auto',
-    }}>
+    <aside className={`app-sidebar${open ? ' open' : ''}`} style={{ background: tokens.dark }}>
       {/* Brand */}
       <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid rgba(255,255,255,.08)' }}>
         <div className="flex items-center gap-8">
@@ -57,7 +53,7 @@ export default function Sidebar() {
             alt="LearnBridge"
             style={{ width: 36, height: 36, objectFit: 'contain', flexShrink: 0 }}
           />
-          <div>
+          <div style={{ flex: 1 }}>
             <div style={{ color: '#fff', fontWeight: 800, fontSize: 15, fontFamily: "'Plus Jakarta Sans'" }}>
               LearnBridge
             </div>
@@ -65,6 +61,7 @@ export default function Sidebar() {
               {profile?.role || 'User'}
             </div>
           </div>
+          <button className="sidebar-close" onClick={onClose} aria-label="Close menu">&times;</button>
         </div>
       </div>
 

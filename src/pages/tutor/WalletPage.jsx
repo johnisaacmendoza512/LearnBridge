@@ -102,7 +102,7 @@ export default function WalletPage() {
       </div>
 
       {/* Wallet balance card */}
-      <div style={{background:`linear-gradient(135deg,#059669,#10B981)`,borderRadius:16,padding:'28px 32px',marginBottom:24,color:'#fff',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+      <div className="wallet-balance" style={{background:`linear-gradient(135deg,#059669,#10B981)`,borderRadius:16,padding:'28px 32px',marginBottom:24,color:'#fff',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
         <div>
           <div style={{fontSize:13,opacity:0.85,marginBottom:6}}>💰 Available Balance</div>
           {loading ? <Spinner size={28}/> : (

@@ -92,31 +92,30 @@ export default function AdminDashboard() {
                     ? `1px solid ${tokens.border}` : 'none',
                 }}
               >
-                <div className="flex items-center gap-12 mb-8">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <Avatar name={t.profile?.full_name || 'T'} size={36} colorIndex={i} />
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="font-semibold" style={{ fontSize: 14 }}>
                       {t.profile?.full_name || '—'}
                     </div>
-                    <div className="text-xs text-muted">
+                    <div className="text-xs text-muted" style={{ textTransform: 'capitalize' }}>
                       {(t.specialization || []).join(', ') || '—'} · Applied {formatDate(t.created_at)}
                     </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                      <Badge variant={t.nbi_clearance_url ? 'success' : 'danger'}>
+                        NBI {t.nbi_clearance_url ? '✓' : '✗'}
+                      </Badge>
+                      <Badge variant={t.prc_license_url ? 'success' : 'danger'}>
+                        PRC {t.prc_license_url ? '✓' : '✗'}
+                      </Badge>
+                      <Badge variant={t.medical_cert_url ? 'success' : 'danger'}>
+                        Medical {t.medical_cert_url ? '✓' : '✗'}
+                      </Badge>
+                    </div>
                   </div>
-                </div>
-                <div className="flex gap-8">
-                  <Badge variant={t.nbi_clearance_url ? 'success' : 'danger'}>
-                    NBI {t.nbi_clearance_url ? '✓' : '✗'}
-                  </Badge>
-                  <Badge variant={t.prc_license_url ? 'success' : 'danger'}>
-                    PRC {t.prc_license_url ? '✓' : '✗'}
-                  </Badge>
-                  <Badge variant={t.medical_cert_url ? 'success' : 'danger'}>
-                    Medical {t.medical_cert_url ? '✓' : '✗'}
-                  </Badge>
-                </div>
-                <div className="flex gap-8 mt-10">
                   <button
                     className="btn btn-primary btn-sm"
+                    style={{ flexShrink: 0 }}
                     onClick={() => navigate('/tutor-verification')}
                   >
                     <Icon name="eye" size={12} /> Review
@@ -172,7 +171,6 @@ export default function AdminDashboard() {
               ['Manage Users',         'users',     '/users'],
               ['Review Question Bank', 'clipboard', '/question-bank'],
               ['View Transactions',    'wallet',    '/transactions'],
-              ['Platform Reports',     'chart',     '/reports'],
             ].map(([label, icon, path]) => (
               <button
                 key={label}
@@ -211,27 +209,33 @@ export default function AdminDashboard() {
                 <th>Student</th>
                 <th>Tutor</th>
                 <th>Subject</th>
-                <th>Session #</th>
-                <th>Date</th>
+                <th>Mode</th>
+                <th>Booked On</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody>
-              {recentSessions.map(s => (
-                <tr key={s.id}>
-                  <td className="font-semibold" style={{ fontSize: 13 }}>
-                    {s.booking?.student?.name || '—'}
+              {recentSessions.map(b => (
+                <tr key={b.id}>
+                  <td>
+                    <div className="font-semibold" style={{ fontSize: 13 }}>{b.student?.name || '—'}</div>
+                    {b.student?.grade_level && (
+                      <div style={{ fontSize: 11, color: tokens.muted }}>Grade {b.student.grade_level}</div>
+                    )}
                   </td>
-                  <td style={{ fontSize: 13 }}>{s.booking?.tutor?.full_name || '—'}</td>
-                  <td style={{ fontSize: 13, textTransform: 'capitalize' }}>{s.booking?.subject || '—'}</td>
-                  <td><Badge variant="gray">#{s.session_number}/8</Badge></td>
-                  <td style={{ fontSize: 12, color: tokens.muted }}>{formatDate(s.scheduled_date)}</td>
+                  <td style={{ fontSize: 13 }}>{b.tutor?.full_name || '—'}</td>
+                  <td style={{ fontSize: 13, textTransform: 'capitalize' }}>{b.subject || '—'}</td>
+                  <td style={{ fontSize: 12, textTransform: 'capitalize', color: tokens.muted }}>
+                    {(b.session_mode || '—').replace('-', ' ')}
+                  </td>
+                  <td style={{ fontSize: 12, color: tokens.muted }}>{formatDate(b.created_at)}</td>
                   <td>
                     <Badge variant={
-                      s.status === 'completed' ? 'success' :
-                      s.status === 'missed'    ? 'danger'  : 'info'
+                      b.status === 'confirmed' ? 'success' :
+                      b.status === 'completed' ? 'info'    :
+                      b.status === 'cancelled' ? 'danger'  : 'warning'
                     }>
-                      {s.status}
+                      {b.status === 'pending_parent_confirm' ? 'Needs Confirm' : b.status}
                     </Badge>
                   </td>
                 </tr>

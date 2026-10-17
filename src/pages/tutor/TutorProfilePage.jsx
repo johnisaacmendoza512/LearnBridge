@@ -11,7 +11,7 @@ const MAX_AVATAR_SIZE = 5 * 1024 * 1024; // 5MB
 const ALLOWED_TYPES   = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp'];
 
 export default function TutorProfilePage() {
-  const { user, profile } = useAuth();
+  const { user, profile, refreshProfile } = useAuth();
   const fileInputRef = useRef(null);
 
   const [tutorData,     setTutorData]     = useState(null);
@@ -107,6 +107,7 @@ export default function TutorProfilePage() {
       await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', user.id);
 
       setAvatarUrl(publicUrl);
+      refreshProfile();
       setSuccess('Profile picture updated!');
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
@@ -151,6 +152,7 @@ export default function TutorProfilePage() {
         specialization:   form.specialization,
       }));
 
+      refreshProfile();
       setSuccess('Profile saved successfully!');
       setTimeout(() => setSuccess(''), 3000);
       setEditing(false);

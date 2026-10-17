@@ -46,18 +46,24 @@ export default function Sidebar({ open = false, collapsed = false, onClose }) {
   return (
     <aside className={`app-sidebar${open ? ' open' : ''}${collapsed ? ' collapsed' : ''}`} style={{ background: tokens.dark }}>
       {/* Brand */}
-      <div className="sidebar-brand" style={{ padding: '20px 20px 16px', borderBottom: '1px solid rgba(255,255,255,.08)' }}>
-        <div className="flex items-center gap-8">
-          <img
-            src={require('../../assets/learnbridge-logo.png')}
-            alt="LearnBridge"
-            style={{ width: 36, height: 36, objectFit: 'contain', flexShrink: 0 }}
-          />
-          <div className="sidebar-text" style={{ flex: 1 }}>
-            <div style={{ color: '#fff', fontWeight: 800, fontSize: 15, fontFamily: "'Plus Jakarta Sans'" }}>
+      <div className="sidebar-brand" style={{ padding: '18px 20px', borderBottom: '1px solid rgba(255,255,255,.08)' }}>
+        <div className="flex items-center" style={{ gap: 12 }}>
+          <div style={{
+            width: 44, height: 44, borderRadius: 12, background: '#fff', flexShrink: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 2px 8px rgba(0,0,0,.25)',
+          }}>
+            <img
+              src={require('../../assets/logo-mark.png')}
+              alt="LearnBridge"
+              style={{ width: 38, height: 38, objectFit: 'contain' }}
+            />
+          </div>
+          <div className="sidebar-text" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', lineHeight: 1.25 }}>
+            <div style={{ color: '#fff', fontWeight: 800, fontSize: 16, fontFamily: "'Plus Jakarta Sans'" }}>
               LearnBridge
             </div>
-            <div style={{ color: '#6B7280', fontSize: 11, textTransform: 'capitalize' }}>
+            <div style={{ color: '#9CA3AF', fontSize: 12, textTransform: 'capitalize', marginTop: 2 }}>
               {profile?.role || 'User'}
             </div>
           </div>
@@ -105,7 +111,7 @@ export default function Sidebar({ open = false, collapsed = false, onClose }) {
       {/* User strip + sign-out */}
       <div className="sidebar-footer" style={{ padding: '14px 16px', borderTop: '1px solid rgba(255,255,255,.08)' }}>
         <div className="flex items-center gap-10 mb-12 sidebar-user">
-          <Avatar name={profile?.full_name || 'U'} size={32} />
+          <Avatar name={profile?.full_name || 'U'} size={32} src={profile?.avatar_url} role={profile?.role} />
           <div className="sidebar-text" style={{ flex: 1, minWidth: 0 }}>
             <div className="truncate" style={{ color: '#fff', fontSize: 13, fontWeight: 600 }}>
               {profile?.full_name || 'User'}

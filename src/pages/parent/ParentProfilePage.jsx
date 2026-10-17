@@ -10,7 +10,7 @@ const MAX_AVATAR_SIZE = 5 * 1024 * 1024;
 const ALLOWED_TYPES   = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp'];
 
 export default function ParentProfilePage() {
-  const { profile, user } = useAuth();
+  const { profile, user, refreshProfile } = useAuth();
   const fileInputRef = useRef(null);
 
   const [savedPhone,    setSavedPhone]    = useState(profile?.phone    || '');
@@ -53,6 +53,7 @@ export default function ParentProfilePage() {
       const publicUrl = `${urlData.publicUrl}?t=${Date.now()}`;
       await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', user.id);
       setAvatarUrl(publicUrl);
+      refreshProfile();
       setSuccess('Profile picture updated!');
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) { setError('Failed to upload: ' + err.message); }
@@ -71,6 +72,7 @@ export default function ParentProfilePage() {
       if (saveErr) throw saveErr;
       setSavedPhone(form.phone);
       setSavedLocation(form.location);
+      refreshProfile();
       setSuccess('Profile updated successfully!');
       setEditing(false);
       setTimeout(() => setSuccess(''), 3000);

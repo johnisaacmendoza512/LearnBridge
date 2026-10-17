@@ -96,7 +96,7 @@ export default function AdminMessagesPage() {
     setSearching(true);
     const { data } = await supabase
       .from('profiles')
-      .select('id, full_name, email, role')
+      .select('id, full_name, email, role, avatar_url')
       .neq('role', 'admin')
       .or(`full_name.ilike.%${q}%,email.ilike.%${q}%`)
       .limit(8);
@@ -158,7 +158,7 @@ export default function AdminMessagesPage() {
       </div>
 
       <div style={{
-        display: 'grid', gridTemplateColumns: '300px 1fr',
+        display: 'grid', gridTemplateColumns: 'minmax(240px, 300px) minmax(0, 1fr)',
         height: 'calc(100vh - 180px)',
         borderRadius: 16, border: `1px solid ${tokens.border}`,
         overflow: 'hidden', background: '#fff',
@@ -232,7 +232,7 @@ export default function AdminMessagesPage() {
                         onMouseEnter={e => e.currentTarget.style.background = '#F9FAFB'}
                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                       >
-                        <Avatar name={u.full_name || 'U'} size={32} />
+                        <Avatar name={u.full_name || 'U'} size={32} src={u.avatar_url} />
                         <div style={{ flex: 1, overflow: 'hidden' }}>
                           <div className="font-semibold" style={{ fontSize: 13 }}>{u.full_name || '—'}</div>
                           <div className="text-xs text-muted truncate">{u.email}</div>
@@ -284,7 +284,7 @@ export default function AdminMessagesPage() {
                     }}
                   >
                     <div className="flex items-center gap-10">
-                      <Avatar name={t.full_name || 'U'} size={38} colorIndex={i} />
+                      <Avatar name={t.full_name || 'U'} size={38} colorIndex={i} src={t.avatar_url} />
                       <div style={{ flex: 1, overflow: 'hidden' }}>
                         <div className="font-semibold" style={{
                           fontSize: 13,
@@ -345,7 +345,7 @@ export default function AdminMessagesPage() {
               display: 'flex', alignItems: 'center', gap: 12,
               background: '#fff', flexShrink: 0,
             }}>
-              <Avatar name={selectedUser.full_name || 'U'} size={38} />
+              <Avatar name={selectedUser.full_name || 'U'} size={38} src={selectedUser.avatar_url} />
               <div>
                 <div className="font-jakarta font-bold" style={{ fontSize: 15 }}>
                   {selectedUser.full_name || '—'}
@@ -370,7 +370,7 @@ export default function AdminMessagesPage() {
                 flex: 1, overflowY: 'auto',
                 padding: '20px 24px',
                 display: 'flex', flexDirection: 'column', gap: 12,
-                background: '#F9FAFB',
+                background: tokens.chatBg,
               }}
             >
               {msgLoading ? (
@@ -397,6 +397,7 @@ export default function AdminMessagesPage() {
                       {!isMe && (
                         <Avatar
                           name={selectedUser.full_name || 'U'}
+                          src={selectedUser.avatar_url}
                           size={28}
                           style={{ marginRight: 8, flexShrink: 0, alignSelf: 'flex-end' }}
                         />
@@ -404,7 +405,7 @@ export default function AdminMessagesPage() {
                       <div style={{
                         maxWidth: '68%', padding: '10px 14px',
                         borderRadius: isMe ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                        background: isMe ? tokens.primary : '#fff',
+                        background: isMe ? tokens.bubbleMe : '#fff',
                         color: isMe ? '#fff' : tokens.dark,
                         boxShadow: '0 1px 4px rgba(0,0,0,.08)',
                         fontSize: 14, lineHeight: 1.5,

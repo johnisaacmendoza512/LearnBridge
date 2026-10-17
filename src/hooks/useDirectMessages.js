@@ -22,7 +22,7 @@ export function useDirectMessages() {
   const fetchAdmin = useCallback(async () => {
     const { data } = await supabase
       .from('profiles')
-      .select('id, full_name, email, role')
+      .select('id, full_name, email, role, avatar_url')
       .eq('role', 'admin')
       .limit(1)
       .single();
@@ -38,8 +38,8 @@ export function useDirectMessages() {
       .from('direct_messages')
       .select(`
         sender_id, receiver_id,
-        sender:sender_id     ( id, full_name, role ),
-        receiver:receiver_id ( id, full_name, role )
+        sender:sender_id     ( id, full_name, role, avatar_url ),
+        receiver:receiver_id ( id, full_name, role, avatar_url )
       `)
       .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
       .order('created_at', { ascending: false });
@@ -55,8 +55,8 @@ export function useDirectMessages() {
     });
 
     setThreads(prev => {
-      const prevIds = prev.map(t => t.id).join(',');
-      const newIds  = users.map(t => t.id).join(',');
+      const prevIds = prev.map(t => t.id + t.avatar_url).join(',');
+      const newIds  = users.map(t => t.id + t.avatar_url).join(',');
       return prevIds === newIds ? prev : users;
     });
 
@@ -72,7 +72,7 @@ export function useDirectMessages() {
       .from('direct_messages')
       .select(`
         id, content, created_at, sender_id, receiver_id,
-        sender:sender_id ( id, full_name, role )
+        sender:sender_id ( id, full_name, role, avatar_url )
       `)
       .or(
         `and(sender_id.eq.${user.id},receiver_id.eq.${otherUserId}),` +

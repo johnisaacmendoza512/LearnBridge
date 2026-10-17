@@ -55,7 +55,7 @@ export default function AppLayout() {
       {menuOpen && <div className="sidebar-backdrop" onClick={() => setMenuOpen(false)} />}
       <div className="app-content">
         <Topbar onMenuClick={handleMenuClick} />
-        <main className="app-main" ref={mainRef}>
+        <main className="app-main app-main--dashboard" ref={mainRef}>
           <Outlet />
         </main>
          <AIChatbot />

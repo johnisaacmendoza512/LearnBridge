@@ -331,7 +331,7 @@ export default function MessagesPage() {
         {/* ══ RIGHT PANEL ══ */}
         <div style={{
           display: 'flex', flexDirection: 'column',
-          background: '#F9FAFB', overflow: 'hidden', position: 'relative',
+          background: tokens.chatBg, overflow: 'hidden', position: 'relative',
         }}>
           <div style={{
             padding: '12px 20px', borderBottom: `1px solid ${tokens.border}`,
@@ -413,7 +413,7 @@ export default function MessagesPage() {
                     <div style={{
                       maxWidth: '65%', padding: '10px 14px',
                       borderRadius: isMe ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-                      background: isMe ? tokens.primary : '#fff',
+                      background: isMe ? tokens.bubbleMe : '#fff',
                       color: isMe ? '#fff' : tokens.dark,
                       boxShadow: '0 1px 4px rgba(0,0,0,.08)',
                       fontSize: 14, lineHeight: 1.5,

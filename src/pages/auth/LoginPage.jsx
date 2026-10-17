@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase';
 import FormGroup from '../../components/ui/FormGroup';
 import Spinner from '../../components/ui/Spinner';
 import tokens from '../../lib/tokens';
+import AuthBackground from './AuthBackground';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -81,22 +82,24 @@ export default function LoginPage() {
   };
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: `linear-gradient(135deg, ${tokens.primaryLight}, #fff, #FEF3C7)`,
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
-      position: 'relative',
-    }}>
-      {/* Logo */}
-      <Link to="/" style={{ position:'absolute', top:24, left:28, display:'flex', alignItems:'center', gap:10, textDecoration:'none' }}>
-        <img src={require('../../assets/learnbridge-logo.png')} alt="LearnBridge" style={{ width:52, height:52, objectFit:'contain' }} />
-        <div>
-          <div className="font-jakarta font-extrabold" style={{ fontSize:17, color:tokens.dark }}>LearnBridge</div>
-          <div className="text-xs text-muted">← Back to Home</div>
-        </div>
-      </Link>
+    <div style={{ minHeight:'100vh', display:'flex', flexDirection:'column', background:'#EEF3FD' }}>
+      {/* HEADER */}
+      <header style={{ height:64, background:'#fff', borderBottom:`1px solid ${tokens.border}`, padding:'0 28px', display:'flex', alignItems:'center', justifyContent:'space-between', position:'relative', zIndex:2 }}>
+        <Link to="/" style={{ display:'flex', alignItems:'center', gap:10, textDecoration:'none' }}>
+          <img src={require('../../assets/learnbridge-logo.png')} alt="LearnBridge" style={{ width:40, height:40, objectFit:'contain' }} />
+          <span className="font-jakarta font-extrabold" style={{ fontSize:18, color:tokens.dark }}>LearnBridge</span>
+        </Link>
+        <Link to="/" className="text-sm text-muted" style={{ textDecoration:'none', fontWeight:600 }}>← Back to Home</Link>
+      </header>
 
-      <div style={{ width:'100%', maxWidth:440 }}>
+      <main style={{
+        flex: 1,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 24px',
+        position: 'relative', overflow: 'hidden',
+      }}>
+      <AuthBackground />
+
+      <div style={{ width:'100%', maxWidth:440, position:'relative', zIndex:1 }}>
         <div className="card fade-in" style={{ padding:36 }}>
 
           <h2 className="font-jakarta font-extrabold mb-4" style={{ fontSize:24 }}>Welcome Back</h2>
@@ -166,6 +169,12 @@ export default function LoginPage() {
           </p>
         </div>
       </div>
+      </main>
+
+      {/* FOOTER */}
+      <footer style={{ background:'#fff', borderTop:`1px solid ${tokens.border}`, padding:'20px 24px', textAlign:'center', position:'relative', zIndex:2 }}>
+        <p className="text-muted" style={{ fontSize:13, margin:0 }}>© 2026 LearnBridge. Empowering Filipino elementary learners in English & Mathematics.</p>
+      </footer>
     </div>
   );
 }

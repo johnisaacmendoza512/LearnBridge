@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import Icon from '../components/ui/Icon';
 import tokens from '../lib/tokens';
+import AuthBackground from './auth/AuthBackground';
 
 const features = [
   { icon:'shield',   title:'Verified Tutors',   desc:'NBI Clearance, PRC License and Medical Certificate required before any tutor is approved.' },
@@ -31,8 +32,9 @@ export default function LandingPage() {
       </nav>
 
       {/* HERO */}
-      <section style={{ padding:'120px 40px 100px',textAlign:'center',background:`linear-gradient(135deg,#FAFAFA 0%,${tokens.primaryLight} 50%,#FEF3C7 100%)` }}>
-        <div style={{ maxWidth:740,margin:'0 auto' }}>
+      <section style={{ padding:'120px 40px max(120px, 17vw)',textAlign:'center',background:'#EEF3FD',position:'relative',overflow:'hidden' }}>
+        <AuthBackground />
+        <div style={{ maxWidth:740,margin:'0 auto',position:'relative',zIndex:1 }}>
           <h1 className="font-jakarta font-black mb-24" style={{ fontSize:'clamp(36px,6vw,60px)',lineHeight:1.1 }}>
             Where Filipino Students{' '}
             <br />
@@ -42,7 +44,7 @@ export default function LandingPage() {
             </span>
           </h1>
           <p style={{ fontSize:18,color:tokens.muted,maxWidth:540,margin:'0 auto 40px',lineHeight:1.7 }}>
-            AI-powered verification and transparent progress tracking for Grade 2–6 learners in English and Mathematics. No more word-of-mouth. Just quality tutoring.
+            AI-powered verification and transparent progress tracking for Filipino elementary learners in English and Mathematics. No more word-of-mouth. Just quality tutoring.
           </p>
           <div className="flex items-center gap-12" style={{ justifyContent:'center',flexWrap:'wrap' }}>
             <button className="btn btn-primary btn-lg" onClick={() => navigate('/register')}>
@@ -123,7 +125,7 @@ export default function LandingPage() {
 
       {/* FOOTER */}
       <footer style={{ background:tokens.dark,borderTop:'1px solid rgba(255,255,255,.08)',padding:40,textAlign:'center' }}>
-        <p style={{ color:'#6B7280',fontSize:13 }}>© 2026 LearnBridge. Empowering Grade 2–6 Filipino learners in English & Mathematics.</p>
+        <p style={{ color:'#6B7280',fontSize:13 }}>© 2026 LearnBridge. Empowering Filipino elementary learners in English & Mathematics.</p>
       </footer>
     </div>
   );

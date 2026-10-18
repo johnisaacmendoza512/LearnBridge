@@ -9,7 +9,7 @@ import tokens from '../../lib/tokens';
 
 const MAX_PDF_BYTES   = 20 * 1024 * 1024;
 const PASS_SCORE      = 70;
-const TOTAL_QUESTIONS = 50;
+const TOTAL_QUESTIONS = 20;
 const EXAM_MINUTES    = 30;
 
 const ENGLISH_CONTEXT = `
@@ -69,7 +69,7 @@ async function generateExamQuestions(subject) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
     body: JSON.stringify({
-      model: 'gpt-4o-mini', max_tokens: 20000, temperature: 0.8,
+      model: 'gpt-4o-mini', max_tokens: 8000, temperature: 0.8,
       messages: [{ role: 'user', content: buildExamPrompt(subject) }],
     }),
   });

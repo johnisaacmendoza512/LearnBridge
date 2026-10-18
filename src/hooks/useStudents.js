@@ -40,7 +40,8 @@ export function useStudents() {
   };
 
   const deleteStudent = async (id) => {
-    await supabase.from('students').delete().eq('id', id);
+    const { error } = await supabase.from('students').delete().eq('id', id);
+    if (error) throw error;
     setStudents(prev => prev.filter(s => s.id !== id));
   };
 

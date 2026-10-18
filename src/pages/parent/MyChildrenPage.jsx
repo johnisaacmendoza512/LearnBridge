@@ -89,7 +89,25 @@ function Toast({ msg, type, onClose }) {
 }
 
 export default function MyChildrenPage() {
-  const { students, loading, addStudent, refresh } = useStudents();
+  const { students, loading, addStudent, deleteStudent, refresh } = useStudents();
+  const [deleteChild,  setDeleteChild]  = useState(null); // child pending delete confirmation
+  const [deleting,     setDeleting]     = useState(false);
+
+  const handleDelete = async () => {
+    if (!deleteChild) return;
+    setDeleting(true);
+    try {
+      // Bookings/sessions are kept; the database unlinks them (ON DELETE SET NULL)
+      await deleteStudent(deleteChild.id);
+      showToast(`${deleteChild.name} has been removed.`);
+      setDeleteChild(null);
+    } catch (e) {
+      // Foreign-key error = database not yet updated with supabase/allow_delete_children.sql
+      showToast(e.code === '23503'
+        ? `${deleteChild.name} is still linked to other records. Run supabase/allow_delete_children.sql in Supabase. (${e.details || e.message})`
+        : e.message, 'error');
+    } finally { setDeleting(false); }
+  };
 
   const [toast,        setToast]        = useState(null);
   const [showAdd,      setShowAdd]      = useState(false);
@@ -338,6 +356,9 @@ export default function MyChildrenPage() {
                   <button className="btn btn-ghost btn-sm" onClick={() => { setEditChild(s); setEditForm({ name:s.name, grade_level:String(s.grade_level), notes:s.notes||'' }); }}>
                     <Icon name="edit" size={12} /> Edit
                   </button>
+                  <button className="btn btn-sm" style={{ marginLeft:'auto', background:'#FEF2F2', color:'#DC2626', border:'1px solid #FCA5A5' }} onClick={() => setDeleteChild(s)}>
+                    <Icon name="x" size={12} color="#DC2626" /> Delete
+                  </button>
 
                 </div>
               </div>
@@ -377,6 +398,19 @@ export default function MyChildrenPage() {
         <FormGroup label="Notes (Optional)" hint="Special learning needs or context for the tutor.">
           <textarea className="textarea" placeholder="e.g. Struggles with word problems..." value={form.notes} onChange={e => set('notes', e.target.value)} />
         </FormGroup>
+      </Modal>
+
+      {/* Delete Child Confirmation */}
+      <Modal open={!!deleteChild} onClose={() => !deleting && setDeleteChild(null)} title="🗑️ Delete Child"
+        footer={<>
+          <button className="btn btn-ghost" onClick={() => setDeleteChild(null)} disabled={deleting}>Cancel</button>
+          <button className="btn btn-danger" onClick={handleDelete} disabled={deleting}>
+            {deleting ? <Spinner /> : 'Yes, Delete'}
+          </button>
+        </>}>
+        <p className="text-sm" style={{ lineHeight:1.6 }}>
+          Are you sure you want to delete <strong>{deleteChild?.name}</strong>? Their profile and assessment results will be permanently removed. Past bookings and payments are kept for your records. This can't be undone.
+        </p>
       </Modal>
 
       {/* Edit Child Modal */}
